@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 // Signals library
 #include <errno.h>
 #include <signal.h>
@@ -33,13 +34,14 @@ typedef struct player_struct //Basic information that other players should know.
     int cooldown;
     int damage;
     float ctH;
+    int connection_fd;
 } player_t;
 
 typedef struct thread_info //Information sent to each thread about other processes
 {
     player_t *players;
-    int game_status; // 0 is OK, 1 is Waiting, -1 is interrupted.
     int connection_fd;
+    player_t *wave;
     int playerno;
 } thread_t;
 
@@ -52,20 +54,21 @@ void setupHandlers();
 sigset_t setupMask();
 int recvString(int connection_fd, char *buffer, int size);
 void sendString(int connection_fd, char *buffer);
-void waitForConnections(int server_fd, thread_t *threadinfo);
+void waitForConnections(int server_fd);
 void onInterrupt(int signal);
-void *gameLoop(void *arg);
-
+void *waitroomLoop(void *arg);
+player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH);
+void *monsterThread(void *arg);
+player_t *initWave(player_t *monsters, int playerNo);
+player_t *initMonsters();
 //--------------------------------------------------------------
 
 int main(int argc, char *argv[])
 {
     int server_fd;
-    thread_t threadData;
+    srand(time(NULL));
 
     //Initialize the thread_t struct
-    threadData.players = malloc(MAX_PLAYERS * sizeof(player_t));
-    threadData.game_status = 0;
 
     printf("\n=== WELCOME TO THE THREAD WARRIORS ===\n");
 
@@ -86,7 +89,7 @@ int main(int argc, char *argv[])
     // Start the server
     server_fd = initServer(argv[1], MAX_QUEUE);
     // Listen for connections from the clients
-    waitForConnections(server_fd, &threadData);
+    waitForConnections(server_fd);
     // Close the socket
     close(server_fd);
 
@@ -211,15 +214,18 @@ void onInterrupt(int signal)
     //IF you want to use program data or communicate sth you need to use global variables.
 }
 
-void waitForConnections(int server_fd, thread_t *threadinfo)
+void waitForConnections(int server_fd)
 {
+    thread_t *threadinfo = malloc(sizeof(thread_t)); //Shared memory space for all threads to use
     struct sockaddr_in client_address;
     socklen_t client_address_size;
     char client_presentation[INET_ADDRSTRLEN];
     int client_fd;
+    int *client_fds = malloc(sizeof(int) * MAX_PLAYERS);
     int timeout = 500; // Time in milliseconds (0.5 seconds)
     int retval = 0;    //Poll return value
     int playerNo = 0;
+    player_t *monsters;
 
     // Create a structure array to hold the file descriptors to poll
     struct pollfd test_fds[1];
@@ -230,51 +236,78 @@ void waitForConnections(int server_fd, thread_t *threadinfo)
     // Get the size of the structure to store client information
     client_address_size = sizeof client_address;
 
+    //The threads to handle monsters, the combat system and so on should probably go here.
+    monsters = initMonsters();
+
     while (!isInterrupted)
     {
-        player_t player;
-        pthread_t new_tid;
-        // ACCEPT
+
         // Wait for a client connection
         retval = poll(test_fds, 1, timeout);
         if (retval > 0)
         {
-            if (test_fds[0].revents & POLLIN && playerNo < 5)
+            if (test_fds[0].revents & POLLIN)
             {
                 client_fd = accept(server_fd, (struct sockaddr *)&client_address, &client_address_size);
+                client_fds[playerNo] = client_fd; //Add to client fd array.
                 if (client_fd == -1)
                 {
                     perror("ERROR: accept");
                 }
+                playerNo++;
 
                 // Get the data from the client
                 inet_ntop(client_address.sin_family, &client_address.sin_addr, client_presentation, sizeof client_presentation);
                 printf("Received incoming connection from %s on port %d\n", client_presentation, client_address.sin_port);
-
-                //Put the appropriate info to send to thread
-                threadinfo->connection_fd = client_fd;
-                threadinfo->players[playerNo] = player;
-                threadinfo->playerno = playerNo;
-
-                // CREATE A THREAD
-                if (pthread_create(&new_tid, NULL, &gameLoop, threadinfo) == -1)
-                {
-                    perror("Error creating a thread");
-                }
             }
         }
+        //Loop to create threads with array of client_fd, create wave, send wave with players
+        if (playerNo >= 3)
+        {
+            pthread_t monster_id;
+            player_t *players = malloc(sizeof(player_t) * playerNo); //Allocate memory for player array
+            player_t *wave = initWave(monsters, playerNo);           // Create the first wave of monsters and allow threads to locate that memory
+            threadinfo->players = players;
+            threadinfo->wave = wave;
+
+            for (size_t i = 0; i < playerNo; i++)
+            {
+                pthread_t new_tid;
+                //Put the appropriate info to send to thread
+                threadinfo->connection_fd = client_fds[i];
+                threadinfo->playerno = i;
+
+                // CREATE A THREAD
+                if (pthread_create(&new_tid, NULL, &waitroomLoop, threadinfo) == -1)
+                {
+                    perror("Error creating a player thread");
+                }
+            }
+            if (pthread_create(&monster_id, NULL, &monsterThread, threadinfo) == -1)
+            {
+                perror("Error creating the enemy thread");
+            }
+
+            playerNo = 0;
+        }
     }
+
+    free(monsters);
 }
 
-void *gameLoop(void *arg)
+void *waitroomLoop(void *arg)
 {
     thread_t *threadData;
     int client_fd;
+    player_t *player;
+    int class;
     threadData = (thread_t *)arg;
     client_fd = threadData->connection_fd;
     int playerno = threadData->playerno;
     char buffer[MAX_BUFSIZ];
+    char name[MAX_BUFSIZ];
     int isReady = 0;
+
     // Create a structure array to hold the file descriptors to poll
     struct pollfd poll_list[1];
     // Fill in the structure
@@ -298,8 +331,81 @@ void *gameLoop(void *arg)
                     perror("ERROR: receive");
                 }
                 isReady = 1;
-                sscanf(buffer, "%s %d", threadData->players[playerno].name, &threadData->players[playerno].class); //Receive name and class selection from client.
+                sscanf(buffer, "%s %d", name, &class); //Receive name and class selection from client.
             }
         }
     }
+
+    switch (threadData->players[playerno].class) //Filling in the character info based on selected class
+    {
+    case 0:
+        player = initEntity(0, name, 250, 5, 25, 0.80); //Warrior
+        break;
+
+    case 1:
+        player = initEntity(1, name, 150, 3, 40, 0.90); //Rogue
+        break;
+
+    case 2:
+        player = initEntity(2, name, 250, 7, 50, 0.65); //Barbarian
+        break;
+
+    default: //Should never reach here
+        break;
+    }
+    player->connection_fd = client_fd;
+    threadData->players[playerno] = *player; //Update every thread with the information about the player.
+
+    printf("Player %d has name %s and is of class %d", playerno, threadData->players[playerno].name, threadData->players[playerno].class);
 }
+
+player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH)
+{
+    player_t *entity = malloc(sizeof(player_t));
+    entity->class = class;
+    entity->name = name;
+    entity->hp = hp;
+    entity->cooldown = cd;
+    entity->damage = damage;
+    entity->ctH = ctH;
+
+    return entity;
+}
+
+player_t *initMonsters()
+{
+    player_t *monsters = malloc(5 * sizeof(player_t));
+    player_t *slime;
+    player_t *murloc;
+    player_t *troll;
+    player_t *ogre;
+    player_t *finalBoss;
+
+    slime = initEntity(-1, "slime", 30, 2, 5, 0.95);
+    murloc = initEntity(-1, "murloc", 50, 4, 15, 0.85);
+    troll = initEntity(-1, "troll", 80, 7, 30, 0.80);
+    ogre = initEntity(-1, "ogre", 100, 10, 50, 0.55);
+    finalBoss = initEntity(-1, "Final Boss", 300, 5, 40, 0.90);
+
+    return monsters;
+}
+
+player_t *initWave(player_t *monsters, int playerNo)
+{
+    int selecter;
+    player_t *wave = malloc(playerNo * sizeof(player_t));
+    for (size_t i = 0; i < playerNo; i++)
+    {
+        selecter = rand() % 5;
+        wave[i] = monsters[selecter];
+    }
+
+    return wave;
+}
+
+//Before launching this, generate enemies and pass it as arg.
+void *monsterThread(void *arg)
+{
+}
+
+//TODO: Combat System, Monster Random Generation, Progression, Monster in own thread, Inter-thread communications.
