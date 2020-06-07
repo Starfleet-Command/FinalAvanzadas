@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
 {
     int connection_fd;
 
-    printf("\n=== FINAL PROJECT CLIENT PROGRAM ===\n");
+    printf("\n=== FINAL PROJECT CLIENT PROGRAM ===\n Wait for all other players to join...\n");
 
     // Check the correct arguments
     if (argc != 3)
@@ -56,7 +56,7 @@ void communicationLoop(int server_fd)
 {
     char buffer[BUFFER_SIZE];
     char name[BUFFER_SIZE];
-    char option;
+    int option;
     int class;
     int serverCode = -1;
     int retval = 0;
@@ -67,28 +67,46 @@ void communicationLoop(int server_fd)
     poll_fds[0].fd = server_fd;
     poll_fds[0].events = POLLIN;
 
-    while (serverCode != SYN) //Wait for server SYNCHRONIZE
-    {
-        retval = poll(poll_fds, 1, timeout);
-        if (retval > 0)
-        {
-            if (poll_fds[0].revents & POLLIN)
-            {
-                recvData(server_fd, buffer, BUFFER_SIZE + 1);
-                sscanf(buffer, "%d", &serverCode);
-            }
-        }
+    int loop = 1;
+
+    //HANDSHAKE WITH SERVER
+    recvData(server_fd, buffer, BUFFER_SIZE + 1);
+    sscanf(buffer, "%d", &serverCode);
+    if(serverCode == SYN){
+        printf("\nThread created and connected with server! \n");
     }
 
-    printf("Please write your name: \n");
+    // CHARACTER CREATION
+    //Select a name
+    printf("\nPlease write your name: \n");
     scanf("%s", name);
-    getchar();
-    printf("Select your class: \n");
-    printf("1. Knight: A balanced choice. Low damage, high health \n ");
-    printf("2. Rogue: An aggressive choice. High damage, low health \n ");
-    printf("3. Barbarian: An unpredictable choice. High damage, High health, low chance to hit \n ");
-    scanf("%c", &option);
-    class = (int)option - 1; //Potentially dangerous? Sanitize inputs?
+    printf("Your name is: %s", name);
+
+    while(loop){
+
+        //Select a class
+        printf("\nSelect your class: \n");
+        printf("1. Knight: A balanced choice. Low damage, high health \n ");
+        printf("2. Rogue: An aggressive choice. High damage, low health \n ");
+        printf("3. Barbarian: An unpredictable choice. High damage, High health, low chance to hit \n ");
+        scanf("%d", &option);
+        
+        //Check if option is valid
+        if(option == 1 || option == 2 || option == 3){
+            printf("Option chosen is: %d, sending it to server...", option);
+            sprintf(buffer, "%s %d", name, option);
+            sendData(server_fd, buffer, BUFFER_SIZE); //Send class to server.
+            loop=0;
+        }
+        else{
+            printf("\nError! Class not found, try again.\n");
+        }
+    } // end while
+    sleep(5);
+    printf("Bye bye!");
+    /*
+
+    
     sprintf(buffer, "%s %d", name, class);
     sendData(server_fd, buffer, BUFFER_SIZE); //Send class to server.
 
@@ -104,4 +122,5 @@ void communicationLoop(int server_fd)
             }
         }
     }
+    */
 }

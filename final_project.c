@@ -22,7 +22,7 @@
 #include "sockets.c"
 
 #define MIN_CLIENTS 3
-#define MAX_BUFSIZ 1024
+#define MAX_BUFSIZE 1024
 #define MAX_QUEUE 7
 #define MAX_PLAYERS 5
 
@@ -45,7 +45,7 @@ typedef struct thread_info //Information sent to each thread about other process
     int playerno;
 } thread_t;
 
-int isInterrupted;
+int isInterrupted = 0;
 
 //--------------FUNCTION DECLARATIONS--------------------------
 
@@ -222,10 +222,14 @@ void waitForConnections(int server_fd)
     char client_presentation[INET_ADDRSTRLEN];
     int client_fd;
     int *client_fds = malloc(sizeof(int) * MAX_PLAYERS);
+    // Pollin
     int timeout = 500; // Time in milliseconds (0.5 seconds)
-    int retval = 0;    //Poll return value
+    int poll_response = 0;    //Poll return value
+
     int playerNo = 0;
     player_t *monsters;
+    int loop = 1;
+    int createWarrior = 1;
 
     // Create a structure array to hold the file descriptors to poll
     struct pollfd test_fds[1];
@@ -237,62 +241,82 @@ void waitForConnections(int server_fd)
     client_address_size = sizeof client_address;
 
     //The threads to handle monsters, the combat system and so on should probably go here.
-    monsters = initMonsters();
+    //monsters = initMonsters();
 
-    while (!isInterrupted)
-    {
+    while(loop){
 
-        // Wait for a client connection
-        retval = poll(test_fds, 1, timeout);
-        if (retval > 0)
-        {
-            if (test_fds[0].revents & POLLIN)
-            {
+        // POLLIN
+        poll_response = poll(test_fds, 1, timeout);
+
+        // Nothing is recieved, we can check if interrupted.
+        if(poll_response == 0){
+
+            if(isInterrupted){ //If my server was interrupted...
+                printf("Server was interrupted! Closing server...\n");
+                loop = 0;
+            }
+
+            //There is 3 players, we are not expecting nothing else, we can create the warrios...
+            else if(playerNo == 3 && createWarrior){
+                //Create player threads
+                printf("All players ready! Creating warrios...\n");
+                player_t *players = malloc(sizeof(player_t) * playerNo); //Allocate memory for player array
+                threadinfo->players = players;
+
+                for (int i = 0; i < 3; i++){
+                    pthread_t new_tid;
+                    //Put the appropriate info to send to thread
+                    threadinfo->connection_fd = client_fds[i];
+                    threadinfo->playerno = i;
+
+                    // CREATE A THREAD
+                    int status = pthread_create(&new_tid, NULL, &waitroomLoop, threadinfo);
+                    printf("Created warrior %d with status %d\n", i, status);
+                    // Check if the thread was created correctly
+                    if(status == -1){
+                        // The thread was NOT created correctly.
+                        perror("ERROR: pthread_create");
+                        // Close the client connection
+                        close(client_fd);
+                    }
+
+                    
+                } // end for
+
+                createWarrior = 0; //end teh warrior creation process.
+            }
+        } // end if
+
+        // There is something coming in, which most probably is a new connection from a client, recieve it.
+        else if(poll_response == 1){
+
+            //There is less than 3 players
+            if(playerNo < 3 && createWarrior){
+                // Accept new connection
                 client_fd = accept(server_fd, (struct sockaddr *)&client_address, &client_address_size);
-                client_fds[playerNo] = client_fd; //Add to client fd array.
-                if (client_fd == -1)
-                {
+                // Check if connection is valid
+                if(client_fd == -1){
                     perror("ERROR: accept");
                 }
-                playerNo++;
+                else{
+                    client_fds[playerNo] = client_fd; //Add to client fd array.
+                    playerNo++;
+                    // Get the data from the client
+                    inet_ntop(client_address.sin_family, &client_address.sin_addr, client_presentation, sizeof client_presentation);
+                    printf("Received incoming connection from %s on port %d\n Remaining players... %d\n", client_presentation, client_address.sin_port, 3-playerNo);
 
-                // Get the data from the client
-                inet_ntop(client_address.sin_family, &client_address.sin_addr, client_presentation, sizeof client_presentation);
-                printf("Received incoming connection from %s on port %d\n", client_presentation, client_address.sin_port);
-            }
-        }
-        //Loop to create threads with array of client_fd, create wave, send wave with players
-        if (playerNo >= 3)
-        {
-            pthread_t monster_id;
-            player_t *players = malloc(sizeof(player_t) * playerNo); //Allocate memory for player array
-            player_t *wave = initWave(monsters, playerNo);           // Create the first wave of monsters and allow threads to locate that memory
-            threadinfo->players = players;
-            threadinfo->wave = wave;
-
-            for (size_t i = 0; i < playerNo; i++)
-            {
-                pthread_t new_tid;
-                //Put the appropriate info to send to thread
-                threadinfo->connection_fd = client_fds[i];
-                threadinfo->playerno = i;
-
-                // CREATE A THREAD
-                if (pthread_create(&new_tid, NULL, &waitroomLoop, threadinfo) == -1)
-                {
-                    perror("Error creating a player thread");
                 }
-            }
-            if (pthread_create(&monster_id, NULL, &monsterThread, threadinfo) == -1)
-            {
-                perror("Error creating the enemy thread");
-            }
+            } // end if
 
-            playerNo = 0;
+        } // end else if
+
+         //Else, I got an error
+        else{
+            perror("ERROR: poll");
         }
     }
 
-    free(monsters);
+    //free(monsters);
 }
 
 void *waitroomLoop(void *arg)
@@ -300,12 +324,12 @@ void *waitroomLoop(void *arg)
     thread_t *threadData;
     int client_fd;
     player_t *player;
-    int class;
+    int class = 1;
     threadData = (thread_t *)arg;
     client_fd = threadData->connection_fd;
     int playerno = threadData->playerno;
-    char buffer[MAX_BUFSIZ];
-    char name[MAX_BUFSIZ];
+    char buffer[MAX_BUFSIZE];
+    char name[MAX_BUFSIZE];
     int isReady = 0;
 
     // Create a structure array to hold the file descriptors to poll
@@ -313,50 +337,70 @@ void *waitroomLoop(void *arg)
     // Fill in the structure
     poll_list[0].fd = client_fd;
     poll_list[0].events = POLLIN; // Check for incomming data
-    int retval = 0;
+     // Pollin
+    int timeout = 500; // Time in milliseconds (0.5 seconds)
+    int poll_response = 0;    //Poll return value
 
+    int loop = 1;
+
+    printf(" I am warrior %d !\n", playerno);
+    // HANDSHAKE WITH CLIENT
+    // SEND
     sprintf(buffer, "%d", SYN);
     sendString(client_fd, buffer); //Ensure client is there and await name and class.
 
-    while (!isReady)
-    {
-        if (retval > 0)
-        {
 
-            if (poll_list[0].revents & POLLIN) //Poll to receive answer
-            {
-                // Send a message to the client, including an extra character for the '\0'
-                if (recvString(client_fd, buffer, strlen(buffer) + 1) == -1)
-                {
-                    perror("ERROR: receive");
-                }
-                isReady = 1;
-                sscanf(buffer, "%s %d", name, &class); //Receive name and class selection from client.
+    while(loop){
+        // POLLIN
+        poll_response = poll(poll_list, 1, timeout);
+
+        // Nothing is recieved, we can check if interrupted.
+        if(poll_response == 0){
+            if(isInterrupted){ //If my server was interrupted...
+                printf("Thread was interrupted! Closing thread...\n");
+                break;
             }
         }
-    }
 
-    switch (threadData->players[playerno].class) //Filling in the character info based on selected class
-    {
-    case 0:
-        player = initEntity(0, name, 250, 5, 25, 0.80); //Warrior
-        break;
+        // There is something coming in, which most probably is the information from the client.
+        else if(poll_response == 1){
+             // RECIEVE CLASS AND NAME FROM CLIENT
+             recvString(client_fd, buffer, MAX_BUFSIZE+1);
+             sscanf(buffer, "%s %d", name, &class); //Receive name and class selection from client.
+             printf("\nRecieved data!\n", class);
 
-    case 1:
-        player = initEntity(1, name, 150, 3, 40, 0.90); //Rogue
-        break;
+             threadData->players[playerno].class = class;
 
-    case 2:
-        player = initEntity(2, name, 250, 7, 50, 0.65); //Barbarian
-        break;
+             switch (class) //Filling in the character info based on selected class
+                {
+                case 1:
+                    player = initEntity(0, name, 250, 5, 25, 0.80); //Warrior
+                    printf("Created a Warrior!\n");
+                    break;
 
-    default: //Should never reach here
-        break;
-    }
-    player->connection_fd = client_fd;
-    threadData->players[playerno] = *player; //Update every thread with the information about the player.
+                case 2:
+                    player = initEntity(1, name, 150, 3, 40, 0.90); //Rogue
+                    printf("Created a Rogue!\n");
+                    break;
 
-    printf("Player %d has name %s and is of class %d", playerno, threadData->players[playerno].name, threadData->players[playerno].class);
+                case 3:
+                    player = initEntity(2, name, 250, 7, 50, 0.65); //Barbarian
+                    printf("Created a Barbarian!\n");
+                    break;
+
+                default: //Should never reach here
+                    break;
+                }
+            player->connection_fd = client_fd;
+            threadData->players[playerno] = *player; //Update every thread with the information about the player.
+
+            printf("Player %d has name %s and is of class %d\n", playerno+1, threadData->players[playerno].name, threadData->players[playerno].class+1);
+            loop = 0;
+        }
+
+    }//end loop    
+    printf(" Player %d says byebye!\n", playerno+1);
+
 }
 
 player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH)
@@ -379,13 +423,13 @@ player_t *initMonsters()
     player_t *murloc;
     player_t *troll;
     player_t *ogre;
-    player_t *finalBoss;
+    player_t *shiva;
 
     slime = initEntity(-1, "slime", 30, 2, 5, 0.95);
     murloc = initEntity(-1, "murloc", 50, 4, 15, 0.85);
     troll = initEntity(-1, "troll", 80, 7, 30, 0.80);
     ogre = initEntity(-1, "ogre", 100, 10, 50, 0.55);
-    finalBoss = initEntity(-1, "Final Boss", 300, 5, 40, 0.90);
+    shiva = initEntity(-1, "Final Boss", 300, 5, 40, 0.90);
 
     return monsters;
 }
