@@ -325,6 +325,9 @@ void *waitroomLoop(void *arg)
     int client_fd;
     player_t *player;
     int class = 1;
+    int action = 0;
+    int target = 0;
+    int serverCode;
     threadData = (thread_t *)arg;
     client_fd = threadData->connection_fd;
     int playerno = threadData->playerno;
@@ -367,7 +370,7 @@ void *waitroomLoop(void *arg)
              // RECIEVE CLASS AND NAME FROM CLIENT
              recvString(client_fd, buffer, MAX_BUFSIZE+1);
              sscanf(buffer, "%s %d", name, &class); //Receive name and class selection from client.
-             printf("\nRecieved data!\n", class);
+             printf("\nRecieved data!\n");
 
              threadData->players[playerno].class = class;
 
@@ -398,7 +401,72 @@ void *waitroomLoop(void *arg)
             loop = 0;
         }
 
-    }//end loop    
+    }//end loop
+
+    //PREPARE FOR COMBAT
+    // First, we handshake to the client to start the combat
+    // SEND
+    sprintf(buffer, "%d", READY);
+    sendString(client_fd, buffer); //Ensure client is there and await name and class.
+    loop = 1;
+
+    while(loop){
+        // POLLIN
+        poll_response = poll(poll_list, 1, timeout);
+
+        // Nothing is recieved, we can check if we were interrupted.
+        if(poll_response == 0){
+            if(isInterrupted){ //If my server was interrupted...
+                printf("Thread was interrupted! Closing thread...\n");
+                break;
+            }
+        }
+        
+        //Client sent an action! Lets checkout which one is it
+        else if(poll_response == 1){
+            // RECIEVE ACTION AND TARGET
+             recvString(client_fd, buffer, MAX_BUFSIZE+1);
+             sscanf(buffer, "%d %d %d", &serverCode, &action, &target); //Receive name and class selection from client.
+             printf("\nRecieved data!\n");
+
+            //Check what type of action it was.
+
+            // ARREGLAR FOR SPAGHETTI CODE
+            if(serverCode == ATTACK){ //ATTACK
+                //ATTACK MECHANIC GOES HERE!
+                printf("\n %s attacks monster %d for %d damage!\n", threadData->players[playerno].name, target, threadData->players[playerno].damage);
+                serverCode = ATTACK;
+                sprintf(buffer, "%s %d %d %d", threadData->players[playerno].name, serverCode, target, threadData->players[playerno].damage);
+
+                //SEND TO ALL CLIENTS WHAT HAPPENED
+                for(int i = 0; i< 3; i++){
+                    sendString(threadData->players[i].connection_fd, buffer); //Ensure client is there and await name and class.
+                }
+            }
+
+            else if(serverCode == DEFEND){
+                // DEFEND MECHANIC GOES HERE!
+                printf("\n %s is defending! Reducing all incoming damage for 50 percent!\n", threadData->players[playerno].name);
+                serverCode = DEFEND;
+                sprintf(buffer, "%s %d %d %d", threadData->players[playerno].name, serverCode, 0, 0);
+
+                //SEND TO ALL CLIENTS WHAT HAPPENED
+                for(int i = 0; i< 3; i++){
+                    sendString(threadData->players[i].connection_fd, buffer); //Ensure client is there and await name and class.
+                }
+                
+            }
+
+            else{ // No valid action.
+                printf("Error: no valid action recieved.");
+            }
+
+        }
+
+
+    }//end loop
+
+
     printf(" Player %d says byebye!\n", playerno+1);
 
 }

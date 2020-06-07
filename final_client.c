@@ -59,15 +59,19 @@ void communicationLoop(int server_fd)
     int option;
     int class;
     int serverCode = -1;
-    int retval = 0;
-    int timeout = 500;
 
     struct pollfd poll_fds[1];
     // Fill in the structure
     poll_fds[0].fd = server_fd;
     poll_fds[0].events = POLLIN;
 
+    // Pollin
+    int timeout = 500; // Time in milliseconds (0.5 seconds)
+    int poll_response = 0;    //Poll return value
+
     int loop = 1;
+    int target = 0;
+    int damage = 0;
 
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
@@ -102,25 +106,72 @@ void communicationLoop(int server_fd)
             printf("\nError! Class not found, try again.\n");
         }
     } // end while
-    sleep(5);
-    printf("Bye bye!");
-    /*
 
-    
-    sprintf(buffer, "%s %d", name, class);
-    sendData(server_fd, buffer, BUFFER_SIZE); //Send class to server.
+    loop = 1;
+    // PREPARE FOR COMBAT!
+    //HANDSHAKE WITH SERVER
+    recvData(server_fd, buffer, BUFFER_SIZE + 1);
+    sscanf(buffer, "%d", &serverCode);
+    if(serverCode == READY){
+        printf("\nReady for combat! \n");
+    }
 
-    while (serverCode != UPDATE || serverCode != EXIT)
-    {
-        retval = poll(poll_fds, 1, timeout);
-        if (retval > 0)
-        {
-            if (poll_fds[0].revents & POLLIN)
-            {
-                recvData(server_fd, buffer, BUFFER_SIZE + 1);
-                sscanf(buffer, "%d", &serverCode);
+    //Start combat
+    while (loop){
+        // POLLIN
+        poll_response = poll(poll_fds, 1, timeout);
+
+        // Nothing is recieved, we can ask the user for an action
+        if(poll_response == 0){
+            printf("\nChoose an action, hero:\n");
+            printf("1. Attack!\n");
+            printf("2. Defend!\n");
+            scanf("%d", &option);
+
+            // If player decides to attack, choose a monster to attack.
+            if(option == 1){
+                printf("Choose a target to attack! (EXPERIMENTAL, CHOOSE ANY NUMBER)\n");
+                scanf("%d", &target);
+                serverCode = ATTACK;
+                sprintf(buffer, "%d %d %d", serverCode, option, target);
+                sendData(server_fd, buffer, BUFFER_SIZE);
+            }
+            //If the player decides to defend
+            else if(option == 2){
+                serverCode = DEFEND;
+                sprintf(buffer, "%d %d %d", serverCode, option, 0);
+                sendData(server_fd, buffer, BUFFER_SIZE);
+
+            }
+            else{
+                printf("ERROR: No valid option was chosen, try again.\n");
             }
         }
+
+        //We recieved something, probably an action from the other threads (or even our own), lets print it.
+        else if(poll_response == 1){
+            //Lets recieve what a thread did!
+            recvData(server_fd, buffer, BUFFER_SIZE + 1);
+            sscanf(buffer, "%s %d %d %d", name, &serverCode, &target, &damage);
+            printf("\nAction is: %d\n", serverCode);
+
+            if(serverCode == ATTACK){
+                printf("\n%s has struck monster %d for %d damage!\n", name, target, damage);
+            }
+
+            else if(serverCode == DEFEND){
+                printf("\n%s decided to defend, reducing incoming damage to him!\n", name);
+            }
+
+            else{
+                printf("\nAction recieved unclear.\n");
+            }
+
+        }
     }
-    */
+    
+
+    sleep(5);
+    printf("Bye bye!");
+
 }
