@@ -35,6 +35,7 @@ typedef struct player_struct //Basic information that other players should know.
     int damage;
     float ctH;
     int connection_fd;
+    int turn;
 } player_t;
 
 typedef struct thread_info //Information sent to each thread about other processes
@@ -57,7 +58,7 @@ void sendString(int connection_fd, char *buffer);
 void waitForConnections(int server_fd);
 void onInterrupt(int signal);
 void *waitroomLoop(void *arg);
-player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH);
+player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH, int turn);
 void *monsterThread(void *arg);
 player_t *initWave(player_t *monsters, int playerNo);
 player_t *initMonsters();
@@ -331,7 +332,7 @@ void *waitroomLoop(void *arg)
     threadData = (thread_t *)arg;
     client_fd = threadData->connection_fd;
     int playerno = threadData->playerno;
-    char buffer[MAX_BUFSIZE];
+    char buffer[3*MAX_BUFSIZE];
     char name[MAX_BUFSIZE];
     int isReady = 0;
 
@@ -373,21 +374,22 @@ void *waitroomLoop(void *arg)
              printf("\nRecieved data!\n");
 
              threadData->players[playerno].class = class;
+             threadData->players[playerno].name = name;
 
              switch (class) //Filling in the character info based on selected class
                 {
                 case 1:
-                    player = initEntity(0, name, 250, 5, 25, 0.80); //Warrior
+                    player = initEntity(0, name, 250, 5, 25, 0.80, 0); //Warrior
                     printf("Created a Warrior!\n");
                     break;
 
                 case 2:
-                    player = initEntity(1, name, 150, 3, 40, 0.90); //Rogue
+                    player = initEntity(1, name, 150, 3, 40, 0.90, 0); //Rogue
                     printf("Created a Rogue!\n");
                     break;
 
                 case 3:
-                    player = initEntity(2, name, 250, 7, 50, 0.65); //Barbarian
+                    player = initEntity(2, name, 250, 7, 50, 0.65, 0); //Barbarian
                     printf("Created a Barbarian!\n");
                     break;
 
@@ -409,6 +411,7 @@ void *waitroomLoop(void *arg)
     sprintf(buffer, "%d", READY);
     sendString(client_fd, buffer); //Ensure client is there and await name and class.
     loop = 1;
+    int counter = 0;
 
     while(loop){
         // POLLIN
@@ -420,6 +423,8 @@ void *waitroomLoop(void *arg)
                 printf("Thread was interrupted! Closing thread...\n");
                 break;
             }
+        printf(".");
+            
         }
         
         //Client sent an action! Lets checkout which one is it
@@ -434,31 +439,60 @@ void *waitroomLoop(void *arg)
             // ARREGLAR FOR SPAGHETTI CODE
             if(serverCode == ATTACK){ //ATTACK
                 //ATTACK MECHANIC GOES HERE!
-                printf("\n %s attacks monster %d for %d damage!\n", threadData->players[playerno].name, target, threadData->players[playerno].damage);
+                threadData->players[playerno].turn = 1; //We can confirm the player have chosen an action
+                printf("\n %s attacks monster %d for %d damage!\n", name, target, threadData->players[playerno].damage);
                 serverCode = ATTACK;
-                sprintf(buffer, "%s %d %d %d", threadData->players[playerno].name, serverCode, target, threadData->players[playerno].damage);
+                sprintf(buffer, "%s %d %d %d", name, serverCode, target, threadData->players[playerno].damage);
 
                 //SEND TO ALL CLIENTS WHAT HAPPENED
+                /*
                 for(int i = 0; i< 3; i++){
                     sendString(threadData->players[i].connection_fd, buffer); //Ensure client is there and await name and class.
-                }
+                }*/
             }
 
             else if(serverCode == DEFEND){
                 // DEFEND MECHANIC GOES HERE!
+                threadData->players[playerno].turn = 1; //We can confirm the player have chosen an action
                 printf("\n %s is defending! Reducing all incoming damage for 50 percent!\n", threadData->players[playerno].name);
                 serverCode = DEFEND;
                 sprintf(buffer, "%s %d %d %d", threadData->players[playerno].name, serverCode, 0, 0);
 
                 //SEND TO ALL CLIENTS WHAT HAPPENED
+                /*
                 for(int i = 0; i< 3; i++){
                     sendString(threadData->players[i].connection_fd, buffer); //Ensure client is there and await name and class.
                 }
-                
+                */
             }
 
             else{ // No valid action.
                 printf("Error: no valid action recieved.");
+            }
+
+            //We can check if all players have taken a turn
+            counter = 0;
+            for(int i = 0; i < 3; i++){
+                if(threadData->players[i].turn == 1){
+                    counter++;
+                }
+            }
+
+            if(counter >= 3){
+                printf("\nAll players made their turn! Lets tell them what happened! (Mechanics can happen)\n");
+                
+                for(int i = 0; i < 3; i++){
+                sendString(threadData->players[playerno].connection_fd, buffer); //Ensure client is there and await name and class.
+                /*
+                recvString(client_fd, buffer, MAX_BUFSIZE+1);
+                sscanf(buffer, "%d", &serverCode); //Receive name and class selection from client.
+                printf("Handshake!");
+                */
+                threadData->players[i].turn = 0;
+                }
+            }
+            else{
+                //printf("\nOnly %d players have finished their turn, waiting for others...\n", counter);
             }
 
         }
@@ -471,7 +505,7 @@ void *waitroomLoop(void *arg)
 
 }
 
-player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH)
+player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH, int turn)
 {
     player_t *entity = malloc(sizeof(player_t));
     entity->class = class;
@@ -480,6 +514,7 @@ player_t *initEntity(int class, char *name, int hp, int cd, int damage, int ctH)
     entity->cooldown = cd;
     entity->damage = damage;
     entity->ctH = ctH;
+    entity->turn = turn;
 
     return entity;
 }
@@ -493,11 +528,11 @@ player_t *initMonsters()
     player_t *ogre;
     player_t *shiva;
 
-    slime = initEntity(-1, "slime", 30, 2, 5, 0.95);
-    murloc = initEntity(-1, "murloc", 50, 4, 15, 0.85);
-    troll = initEntity(-1, "troll", 80, 7, 30, 0.80);
-    ogre = initEntity(-1, "ogre", 100, 10, 50, 0.55);
-    shiva = initEntity(-1, "Final Boss", 300, 5, 40, 0.90);
+    slime = initEntity(-1, "slime", 30, 2, 5, 0.95, 0);
+    murloc = initEntity(-1, "murloc", 50, 4, 15, 0.85,0);
+    troll = initEntity(-1, "troll", 80, 7, 30, 0.80,0);
+    ogre = initEntity(-1, "ogre", 100, 10, 50, 0.55,0);
+    shiva = initEntity(-1, "Final Boss", 300, 5, 40, 0.90,0);
 
     return monsters;
 }
