@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
 
 void communicationLoop(int server_fd)
 {
-    char buffer[BUFFER_SIZE];
+    char buffer[4*BUFFER_SIZE];
     char name[BUFFER_SIZE];
     int option;
     int class;
