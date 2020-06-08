@@ -156,6 +156,8 @@ sigset_t setupMask()
     return old_set;
 }
 
+// QUITAR
+
 int recvString(int connection_fd, char *buffer, int size)
 {
     int chars_read;
@@ -415,6 +417,10 @@ void *waitroomLoop(void *arg)
     int counter2 = 0;
     int counter3 = 0;
 
+    //MORE SPAGHETTI VARIABLES
+    int allready = 0;
+    int allsent = 0;
+
     while(loop){
         // POLLIN
         poll_response = poll(poll_list, 1, timeout);
@@ -425,45 +431,7 @@ void *waitroomLoop(void *arg)
                 printf("Thread was interrupted! Closing thread...\n");
                 break;
             }
-        
-        //We can check if all players have taken a turn and/or sent their info
-            counter = 0;
-            counter3 = 0;
-            for(int i = 0; i < 3; i++){
-                if(threadData->players[i].turn == 1){
-                    printf("\n Player %d has made a move. ",i+1);
-                    counter++;
-                }
-
-                if(threadData->players[i].sent == 1){
-                    printf("\n Player %d has sent their data. ",i+1);
-                    counter3++;
-                    }
-            }
-            
-            if(counter >= 3 && counter3 < 3){ // If all players have made a move and not all threads sent their info:
-                //Check if this thread already sent information to the client
-                if(counter2 == 0){ //If not, send it.
-                    for(int i=0; i<3; i++){
-                        printf("\nAll players made their turn! Lets tell them what happened! (Mechanics can happen) %d counter %d \n", i, counter);
-                        sendString(threadData->players[playerno].connection_fd, buffer); //Ensure client is there and await name and class.
-                        counter2=1;
-                    } // end for
-                    //Tell the other threads this thread sent its information
-                    threadData->players[playerno].sent = 1;
-                }//end if
-            }
-                
-/*
-                if(counter >= 3 && counter3 >= 3){ //If all threads have sent their message, we reset everything.
-                        for (int i = 0; i < 3; i++){
-                            threadData->players[i].turn = 0;
-                            threadData->players[i].sent = 0;
-                        }
-                        
-                    }
                     //
-                */
             }// End poll
             
             
@@ -481,31 +449,37 @@ void *waitroomLoop(void *arg)
             // ARREGLAR FOR SPAGHETTI CODE
             if(serverCode == ATTACK){ //ATTACK
                 //ATTACK MECHANIC GOES HERE!
-                threadData->players[playerno].turn = 1; //We can confirm the player have chosen an action
+                //Dereferencia el apuntador
+                //*(threadData->counter)++;
                 printf("\n %s attacks monster %d for %d damage!\n", name, target, threadData->players[playerno].damage);
                 serverCode = ATTACK;
                 sprintf(buffer, "%s %d %d %d", name, serverCode, target, threadData->players[playerno].damage);
 
                 //SEND TO ALL CLIENTS WHAT HAPPENED
-                /*
+                
                 for(int i = 0; i< 3; i++){
                     sendString(threadData->players[i].connection_fd, buffer); //Ensure client is there and await name and class.
-                }*/
+                }
             }
 
             else if(serverCode == DEFEND){
                 // DEFEND MECHANIC GOES HERE!
-                threadData->players[playerno].turn = 1; //We can confirm the player have chosen an action
+                //Dereferencia el apuntador
+                //*(threadData->counter)++;
                 printf("\n %s is defending! Reducing all incoming damage for 50 percent!\n", threadData->players[playerno].name);
                 serverCode = DEFEND;
                 sprintf(buffer, "%s %d %d %d", threadData->players[playerno].name, serverCode, 0, 0);
 
                 //SEND TO ALL CLIENTS WHAT HAPPENED
-                /*
+                
                 for(int i = 0; i< 3; i++){
                     sendString(threadData->players[i].connection_fd, buffer); //Ensure client is there and await name and class.
                 }
-                */
+                
+            }
+
+            else if(serverCode == SYN){
+                printf("\nClient has finished printing everything.\n");
             }
 
             else{ // No valid action.
@@ -572,5 +546,6 @@ void *monsterThread(void *arg)
 }
 
 //TODO: Combat System, Monster Random Generation, Progression, Monster in own thread, Inter-thread communications.
+
 
 
