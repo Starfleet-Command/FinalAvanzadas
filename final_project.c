@@ -25,6 +25,7 @@
 #define MAX_BUFSIZE 1024
 #define MAX_QUEUE 7
 #define MAX_PLAYERS 5
+#define FLAVOUR_SLEEP 13
 
 typedef struct player_struct //Basic information that other players should know. More detailed info is handled server-side only.
 {
@@ -442,7 +443,7 @@ void *waitroomLoop(void *arg)
     // First, we handshake to the client to start the combat
     // SEND
 
-    //SLEEP FOR CLIENT FLAVOUR TEXT GOES HERE
+    sleep(FLAVOUR_SLEEP); //SLEEP FOR CLIENT FLAVOUR TEXT GOES HERE
 
     *(threadData->ready_for_combat) += 1;
     printf("Player ready for combat %d \n", *(threadData->ready_for_combat));
@@ -651,7 +652,7 @@ player_t *initWave(player_t *monsters, int playerNo)
 {
     int selecter;
 
-    player_t *wave = malloc(playerNo * sizeof(player_t));
+    player_t *wave = malloc(playerNo * sizeof(player_t)); //Possible change: move this to enemies so that it doesn't get malloced twice
     for (int i = 0; i < playerNo; i++)
     {
         selecter = rand() % 4;
@@ -722,12 +723,15 @@ void *monsterThread(void *arg)
     char buffer[3 * MAX_BUFSIZE];
     int serverCode;
     int wavesRemaining = *(threadData->max_waves);
+    int monsterCount = *(threadData->max_players);
 
     player_t *monsters = initMonsters();
-    player_t *wave = initWave(monsters, *(threadData->max_players)); //Create initial wave.
+    player_t *wave = malloc(monsterCount * sizeof(player_t));
+    wave = initWave(monsters, monsterCount); //Create initial wave.
     int target;
     int attackDamage;
     int sleepy = 7;
+    int isFinalBoss = 0;
 
     threadData->wave = wave;
 
@@ -737,12 +741,13 @@ void *monsterThread(void *arg)
         if (*(threadData->ready_for_combat) == *(threadData->max_players))
         {
 
-            //sleep(); flavour text
+            sleep(FLAVOUR_SLEEP); //flavour text sleep
+
             sleep(2); //Arbitrary time to stop monsters from attacking immediately
             while (!combatEnded(threadData->wave, threadData->players, *(threadData->max_players)) && !isInterrupted)
             {
 
-                for (int i = 0; i < *(threadData->max_players); i++)
+                for (int i = 0; i < monsterCount; i++)
                 {
                     int r = hit_or_miss(threadData->wave[i].ctH);
 
@@ -771,7 +776,6 @@ void *monsterThread(void *arg)
                     else
                     {
 
-                        fflush(stdout);
                         serverCode = MISS;
                     }
 
@@ -789,10 +793,25 @@ void *monsterThread(void *arg)
             //After combat, create a new wave and wait again for flavour text
 
             //FLAVOUR TEXT WAIT GOES HERE
-            wavesRemaining--;
-            wave = initWave(monsters, *(threadData->max_players));
-            threadData->wave = wave;
-            printf("Previous wave is dead. Creating new one \n");
+
+            if (wavesRemaining == 0 && isFinalBoss == 0)
+            {
+                wavesRemaining++; //Do this so loop doesn't stop.
+                    //Clear everything in wave and set only final boss
+                wave[0] = monsters[4];
+                monsterCount = 1; //Only final boss present for last fight
+            }
+            else if (wavesRemaining == 1 && isFinalBoss == 1)
+            {
+                wavesRemaining--;
+            }
+            else if (wavesRemaining > 0)
+            {
+                wavesRemaining--;
+                wave = initWave(monsters, *(threadData->max_players));
+                threadData->wave = wave;
+                printf("Previous wave is dead. Creating new one \n");
+            }
 
         } //end if
     }
@@ -801,4 +820,4 @@ void *monsterThread(void *arg)
     pthread_exit(NULL);
 }
 
-//TODO: Mutexes, Fix Interrupts, Add flavour text to client, final boss.
+//TODO: Mutexes, Fix Interrupts, Signal to client that fight has stopped, apply cooldowns to user attacks, notify them of their deaths.
