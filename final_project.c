@@ -431,8 +431,8 @@ void *waitroomLoop(void *arg)
     // SEND
     
     // ++ a la variable compartida
-    printf("Player ready for combat \n");
-    *(threadData->ready_for_combat)++;
+    *(threadData->ready_for_combat) += 1;
+    printf("Player ready for combat %d \n",*(threadData->ready_for_combat));
 
 
     double chance = threadData->players[playerno].ctH;
@@ -572,6 +572,8 @@ player_t *initEntity(int class, char *name, int hp, int cd, int damage, double c
 
 player_t *initMonsters()
 {
+
+    printf("Init starting \n");
     player_t *monsters = malloc(5 * sizeof(player_t));
     player_t *slime;
     player_t *murloc;
@@ -590,12 +592,18 @@ player_t *initMonsters()
 
 player_t *initWave(player_t *monsters, int playerNo)
 {
+    printf("Init starting \n");
     int selecter;
+    printf("Malloc starting \n");
     player_t *wave = malloc(playerNo * sizeof(player_t));
-    for (size_t i = 0; i < playerNo; i++)
+    printf("Malloc ending \n");
+    for (int i = 0; i < playerNo; i++)
     {
+        printf("Start for woth counter %d \n", i);
         selecter = rand() % 5;
         wave[i] = monsters[selecter];
+        printf("Monster %d created \n", wave[i].hp);
+        fflush(stdout);
     }
 
     return wave;
@@ -627,7 +635,7 @@ void *monsterThread(void *arg)
     int serverCode;
 
     player_t *monsters = initMonsters();
-    player_t *wave= initWave(monsters, *(threadData->max_players));
+    player_t *wave = initWave(monsters, *(threadData->max_players));
     int target;
     int damage;
     int sleepy = 7;
@@ -637,12 +645,13 @@ void *monsterThread(void *arg)
     while(1){
         // Checar varaible compartida, cuando llegue maxplayers, sleep
         if(*(threadData->ready_for_combat) == *(threadData->max_players)){
-            printf("MONSTERS ATTACK!\n");
             fflush(stdout);
             //sleep(); flavour text
 
             for(int i=0; i<*(threadData->max_players);i++){
-                int r = hit_or_miss(wave[i].ctH);
+                int r = hit_or_miss(threadData->wave[i].ctH);
+
+                printf("Monster name %s\n", threadData->wave[i].name);
 
                 // HIT
                 if(r == 1){
@@ -653,11 +662,11 @@ void *monsterThread(void *arg)
 
                     //We check if its defending
                     if(threadData->players[target].is_defending){ // Is defending
-                        damage = wave[i].damage / 2;
+                        damage = threadData->wave[i].damage / 2;
                         threadData->players[target].hp -= damage;
                     }
                     else{ // Its not defending
-                        damage = wave[i].damage;
+                        damage = threadData->wave[i].damage;
                         threadData->players[target].hp -= damage;
                     }
 
@@ -671,7 +680,7 @@ void *monsterThread(void *arg)
                     serverCode = MISS;
                 }
 
-                sprintf(buffer, "%s %d %d %d", wave[i].name, serverCode, target, damage);
+                sprintf(buffer, "%s %d %d %d", threadData->wave[i].name, serverCode, target, damage);
                 for(int i; i< *(threadData->max_players); i++){
                     sendString(threadData->players[i].connection_fd, buffer); //Ensure client is there and await name and class.
                 }
