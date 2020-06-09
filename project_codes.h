@@ -7,5 +7,6 @@ typedef enum communication_codes
     UPDATE,
     ATTACK,
     DEFEND,
+    MISS,
     EXIT
 } com_t;
