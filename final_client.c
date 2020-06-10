@@ -1,6 +1,16 @@
 /*
 Client program for the final project. 
 Juan Francisco Gortarez A01021926
+Sebastian Gonzalo Vives Faus A01025211
+*/
+
+/*
+2. Mutex
+3. Al inicio del combate, mandar al cliente la wave.
+4. Arreglar todo el flavour text y sus sleeps
+5. Balanceo de combate (we are too op)
+6. Cooldown de los players
+
 */
 
 #include <stdio.h>
@@ -264,6 +274,13 @@ void communicationLoop(int server_fd)
                 {
                     printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
                     printed = 0;
+                }
+
+                else if (serverCode == VICTORY)
+                {
+                    printf("\n CONGRATULATIONS! YOU HAVE DEFEATED SHIVA AND SAVED THE KINGDOM!\n THANKS FOR PLAYING! OWO\n");
+                    printed = 0;
+                    break;
                 }
 
                 else if (serverCode == EXIT)
