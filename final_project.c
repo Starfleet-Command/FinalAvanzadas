@@ -26,6 +26,7 @@
 #define MAX_QUEUE 7
 #define MAX_PLAYERS 5
 #define FLAVOUR_SLEEP 13
+#define ADDHEALTH 100
 
 typedef struct player_struct //Basic information that other players should know. More detailed info is handled server-side only.
 {
@@ -68,6 +69,7 @@ player_t *initMonsters();
 int hit_or_miss(double ctH);
 int choose_player(player_t *players, int max_players);
 int combatEnded(player_t *attackers, player_t *defenders, int numPlayers);
+void addHealth(player_t *players, int max_players);
 //--------------------------------------------------------------
 
 int main(int argc, char *argv[])
@@ -472,11 +474,23 @@ void *waitroomLoop(void *arg)
                 if (isInterrupted)
                 { //If my server was interrupted...
                     printf("Thread was interrupted! Closing thread and telling the client...\n");
-                    serverCode == EXIT;
-                    sprintf(buffer, "%s %d %d %d", name, serverCode, 0, 0);
+                    //serverCode == EXIT;
+                    sprintf(buffer, "%s %d %s %d %d %d", name, 7, name, 0, 0, 0);
                     sendString(threadData->players[playerno].connection_fd, buffer); //Ensure client is there and await name and class.
 
                     printf(" Player %d says byebye!\n", playerno + 1);
+                    break;
+                }
+
+                if (threadData->players[playerno].hp <= 0)
+                {
+                    printf("Player %s has died! Exiting...", threadData->players[playerno].name);
+                    //serverCode == 7;
+                    sprintf(buffer, "%s %d %s %d %d %d", name, 7, name, 0, 0, 0);
+                    sendString(threadData->players[playerno].connection_fd, buffer); //Ensure client is there and await name and class.
+
+                    //*(threadData->max_players)--;
+                    threadData->players[playerno].hp = 0;
                     break;
                 }
 
@@ -507,7 +521,7 @@ void *waitroomLoop(void *arg)
                         {
                             threadData->wave[target].hp -= threadData->players[playerno].damage;
                             printf("\n %s attacks monster %d for %d damage! It has %d hp left. \n", name, target, threadData->players[playerno].damage, threadData->wave[target].hp);
-                            sprintf(buffer, "%s %d %d %d", name, serverCode, target, threadData->players[playerno].damage);
+                            sprintf(buffer, "%s %d %s %d %d %d", name, serverCode, threadData->wave[target].name,0, threadData->players[playerno].damage, threadData->wave[target].hp);
                         }
 
                         else //If target is dead randomly select a non-dead target
@@ -515,7 +529,7 @@ void *waitroomLoop(void *arg)
                             altTarget = choose_player(threadData->wave, *(threadData->max_players));
                             threadData->wave[altTarget].hp -= threadData->players[playerno].damage;
                             printf("\n %s attacks monster %d for %d damage! It has %d hp left. \n", name, altTarget, threadData->players[playerno].damage, threadData->wave[altTarget].hp);
-                            sprintf(buffer, "%s %d %d %d", name, serverCode, altTarget, threadData->players[playerno].damage);
+                            sprintf(buffer, "%s %d %s %d %d %d", name, serverCode, threadData->wave[altTarget].name, 0,threadData->players[playerno].damage, threadData->wave[altTarget].hp);
                         }
 
                         serverCode = ATTACK;
@@ -524,6 +538,7 @@ void *waitroomLoop(void *arg)
                     else
                     {
                         printf("\n %s has missed his attack!\n", name);
+                        sprintf(buffer, "%s %d %s %d %d %d", name, serverCode, threadData->wave[target].name, 0,threadData->players[playerno].damage, threadData->wave[target].hp);
                         serverCode = MISS;
                     }
 
@@ -531,7 +546,9 @@ void *waitroomLoop(void *arg)
 
                     for (int i = 0; i < *(threadData->max_players); i++)
                     {
-                        sendString(threadData->players[i].connection_fd, buffer);
+                        if(threadData->players[i].hp > 0){
+                            sendString(threadData->players[i].connection_fd, buffer);
+                        }
                     }
                 }
 
@@ -544,21 +561,25 @@ void *waitroomLoop(void *arg)
 
                     printf("\n %s is defending! Reducing all incoming damage for 50 percent!\n", threadData->players[playerno].name);
                     serverCode = DEFEND;
-                    sprintf(buffer, "%s %d %d %d", threadData->players[playerno].name, serverCode, 0, 0);
+                    sprintf(buffer, "%s %d %s %d %d %d", threadData->players[playerno].name, serverCode, name, 0, 0, threadData->players[playerno].hp);
 
                     //SEND TO ALL CLIENTS WHAT HAPPENED
 
+                    
                     for (int i = 0; i < *(threadData->max_players); i++)
                     {
-                        sendString(threadData->players[i].connection_fd, buffer);
+                        if(threadData->players[i].hp > 0){
+                            sendString(threadData->players[i].connection_fd, buffer);
+                        }
                     }
                 }
 
                 else if (serverCode == EXIT)
                 {
                     printf("Client disconnected.");
-                    *(threadData->max_players)--;
+                    //*(threadData->max_players)--;
                     threadData->players[playerno].hp = 0;
+                    break;
                 }
 
                 else if (serverCode == 0)
@@ -580,13 +601,7 @@ void *waitroomLoop(void *arg)
                     //SLEEP FOR FURTHER FLAVOUR TEXT IF REQUIRED GOES HERE
                 }
 
-                if (threadData->players[playerno].hp <= 0)
-                {
-                    printf("Player %s has died! Exiting...", threadData->players[playerno].name);
-                    *(threadData->max_players)--;
-                    threadData->players[playerno].hp = 0;
-                    break;
-                }
+                
             }
 
             else{
@@ -594,7 +609,7 @@ void *waitroomLoop(void *arg)
                 { //If my server was interrupted...
                     printf("Thread was interrupted! Closing thread and telling the client...\n");
                     serverCode == EXIT;
-                    sprintf(buffer, "%s %d %d %d", name, serverCode, 0, 0);
+                    sprintf(buffer, "%s %d %s %d %d %d", name, serverCode, name, 0, 0, 0);
                     sendString(threadData->players[playerno].connection_fd, buffer); //Ensure client is there and await name and class.
 
                     printf(" Player %d says byebye!\n", playerno + 1);
@@ -639,10 +654,10 @@ player_t *initMonsters()
     player_t *ogre;
     player_t *shiva;
 
-    slime = initEntity(-1, "slime", 30, 2, 5, 0.95);
-    murloc = initEntity(-1, "murloc", 50, 4, 15, 0.85);
-    troll = initEntity(-1, "troll", 80, 7, 30, 0.80);
-    ogre = initEntity(-1, "ogre", 100, 10, 50, 0.55);
+    slime = initEntity(-1, "Slime", 30, 2, 5, 0.95);
+    murloc = initEntity(-1, "Murloc", 50, 4, 15, 0.85);
+    troll = initEntity(-1, "Troll", 80, 7, 30, 0.80);
+    ogre = initEntity(-1, "Ogre", 100, 10, 50, 0.55);
     shiva = initEntity(-1, "Final Boss", 300, 5, 40, 0.90);
 
     monsters[0] = *slime;
@@ -674,15 +689,29 @@ player_t *initWave(player_t *monsters, int playerNo)
 int choose_player(player_t *players, int max_players)
 {
     int selector;
+    int dead_players = 0;;
+
+    for(int i =0; i< max_players; i++){
+        if(players[i].hp <= 0){
+            dead_players++;
+        }
+    }
+
+    if(dead_players >= max_players){
+        printf("chooseplayer All players dead!\n");
+        return -1;
+    }
 
     while (1)
     {
         // Selects a random player
+
         selector = rand() % max_players;
         if (players[selector].hp > 0)
         { // If the selecte dplayer is alive...
             break;
         }
+
     }
 
     //We return him.
@@ -721,6 +750,14 @@ int combatEnded(player_t *attackers, player_t *defenders, int numPlayers)
         return 0;
 }
 
+void addHealth(player_t *players, int max_players){
+    for(int s = 0; s <max_players; s++){
+            if(players[s].hp > 0){
+                players[s].hp += ADDHEALTH;
+            }
+        }
+}
+
 //Before launching this, generate enemies and pass it as arg.
 void *monsterThread(void *arg)
 {
@@ -744,7 +781,7 @@ void *monsterThread(void *arg)
     while (wavesRemaining > 0 && !isInterrupted)
     {
         // Checar varaible compartida, cuando llegue maxplayers, sleep
-        if (*(threadData->ready_for_combat) == *(threadData->max_players))
+        if (*(threadData->ready_for_combat) >= *(threadData->max_players))
         {
 
             //sleep(FLAVOUR_SLEEP); //flavour text sleep
@@ -762,6 +799,11 @@ void *monsterThread(void *arg)
                     {
                         // Choose a player to hit
                         target = choose_player(threadData->players, *(threadData->max_players));
+
+                        if(target == -1){
+                            printf("while All players dead!\n");
+                            continue;
+                        }
 
                         //We check if its defending
                         if (threadData->players[target].is_defending)
@@ -785,11 +827,13 @@ void *monsterThread(void *arg)
                         serverCode = MISS;
                     }
 
-                    sprintf(buffer, "%s %d %d %d", threadData->wave[i].name, serverCode, target, attackDamage);
+                    sprintf(buffer, "%s %d %s %d %d %d", threadData->wave[i].name, serverCode, threadData->players[target].name, 0,attackDamage, threadData->players[target].hp);
                     printf("Monster named %s attacked %d for %d damage\n", threadData->wave[i].name, target, attackDamage);
                     for (int s = 0; s < *(threadData->max_players); s++)
                     {
-                        sendData(threadData->players[s].connection_fd, buffer, strlen(buffer)+1); //Send combat information by monsters to client.
+                        if(threadData->players[s].hp > 0){
+                            sendData(threadData->players[s].connection_fd, buffer, strlen(buffer)+1); //Send combat information by monsters to client.
+                        }
                     }
 
                 } //end for
@@ -799,6 +843,12 @@ void *monsterThread(void *arg)
             //After combat, create a new wave and wait again for flavour text
 
             //FLAVOUR TEXT WAIT GOES HERE
+
+            //If monsters WIN
+            if(combatEnded(threadData->wave, threadData->players, *(threadData->max_players)) == 1){
+                printf("\nMonsters have won!\n");
+                break;
+            }
 
             if (wavesRemaining == 0 && isFinalBoss == 0)
             {
@@ -818,12 +868,23 @@ void *monsterThread(void *arg)
                 wave = initWave(monsters, *(threadData->max_players));
                 threadData->wave = wave;
                 printf("Previous wave is dead. Creating new one \n");
+                addHealth(threadData->players, *(threadData->max_players));
+                serverCode = NEWWAVE;
+                for (int s = 0; s < *(threadData->max_players); s++)
+                    {
+                        if(threadData->players[s].hp > 0){
+                            sprintf(buffer, "%s %d %s %d %d %d", threadData->players[s].name, serverCode, threadData->players[s].name,0,0,threadData->players[s].hp);
+                            sendData(threadData->players[s].connection_fd, buffer, strlen(buffer)+1); //Send combat information by monsters to client.
+                        }
+                    }
+
             }
 
         } //end if
     }
     free(monsters);
     free(wave);
+    printf("Monsters say bye bye\n");
     pthread_exit(NULL);
 }
 

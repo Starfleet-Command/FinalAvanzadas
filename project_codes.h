@@ -8,5 +8,6 @@ typedef enum communication_codes
     ATTACK,
     DEFEND,
     MISS,
-    EXIT
+    EXIT,
+    NEWWAVE,
 } com_t;

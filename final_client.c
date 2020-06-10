@@ -122,8 +122,10 @@ void onInterrupt(int signal)
 
 void communicationLoop(int server_fd)
 {
-    char buffer[4 * BUFFER_SIZE];
+    char buffer[3 * BUFFER_SIZE];
     char name[BUFFER_SIZE];
+    char target_name[BUFFER_SIZE];
+    int health = 0;
     int option;
     int class;
     int serverCode = -1;
@@ -145,7 +147,6 @@ void communicationLoop(int server_fd)
     int damage = 0;
     int isDead = 0;
     int counter = 0;
-    int health;
 
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
@@ -231,46 +232,44 @@ void communicationLoop(int server_fd)
         }
 
         // Nothing is recieved, we can ask the user for an action
-        if (!printed)
-        {
-            printf("\nChoose an action, hero:\n");
-            printf("1. Attack!\n");
-            printf("2. Defend!\n");
-            printed = 1;
-        }
 
         if (poll_response > 0)
         {
 
             if (poll_fds[0].revents == POLLIN)
             { // Check to receive something from socket
-                recvData(server_fd, buffer, BUFFER_SIZE + 1);
-                sscanf(buffer, "%s %d %d %d", name, &serverCode, &target, &damage);
-                printf("\nAction is: %d\n", serverCode);
+                recvData(server_fd, buffer, BUFFER_SIZE+1);
+                sscanf(buffer, "%s %d %s %d %d %d", name, &serverCode, target_name, &target, &damage, &health);
+                printf("\n BUFFER: %s %d %s %d %d %d\n",  name, serverCode, target_name, target, damage, health);
 
                 if (serverCode == ATTACK)
                 {
-                    printf("\n%s has struck monster %d for %d damage!\n", name, target, damage);
+                    printf("\n%s has struck %s for %d damage!\n%s remaining health: %d", name, target_name, damage, target_name, health);
                     printed = 0;
                 }
 
                 else if (serverCode == DEFEND)
                 {
-                    printf("\n%s decided to defend, reducing incoming damage to him!\n", name);
+                    printf("\n%s decided to defend, reducing incoming damage to him!\n%s remaining health: %d", name, name, health);
                     printed = 0;
                 }
 
                 else if (serverCode == MISS)
                 {
-                    printf("\n%s tried to attack %d but missed!\n", name, target);
+                    printf("\n%s tried to attack %s but missed!\n", name, target_name);
                     printed = 0;
                 }
 
-                else if (serverCode == EXIT || serverCode == 0)
+                else if (serverCode == NEWWAVE)
+                {
+                    printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
+                    printed = 0;
+                }
+
+                else if (serverCode == EXIT)
                 {
                     //If you have been disconnected
-                    printf("\nYou have been disconnected!\n");
-
+                    printf("\nYou have died!\n");
                     break;
                 }
 
@@ -285,13 +284,6 @@ void communicationLoop(int server_fd)
             { //If something is received from the keyboard
                 scanf("%d", &option);
                 printf("%d", option);
-
-                if (isDead)
-                {
-                    printf("You have been killed by your enemies! Your party must continue adventuring without you.");
-                    serverCode = EXIT;
-                    sprintf(buffer, "%d %d %d", serverCode, 0, 0);
-                }
 
                 // If player decides to attack, choose a monster to attack.
                 if (option == 1)
@@ -321,8 +313,8 @@ void communicationLoop(int server_fd)
              if (isInterrupted)
             { //If my server was interrupted...
                 printf("Client was interrupted! Closing connection...\n");
-                serverCode = EXIT;
-                sprintf(buffer, "%d %d %d", serverCode, 0, 0);
+                //serverCode = EXIT;
+                sprintf(buffer, "%d %d %d", 7, 0, 0);
                 sendData(server_fd, buffer, BUFFER_SIZE);
 
                 printf("Bye bye!");
@@ -330,6 +322,25 @@ void communicationLoop(int server_fd)
                 loop = 0;
                 printed = 1;
             }
+
+            if (!printed)
+            {
+                printf("\nChoose an action, hero:\n");
+                printf("1. Attack!\n");
+                printf("2. Defend!\n");
+                printed = 1;
+            }
+/*
+            if (isDead)
+                {
+                    printf("You have been killed by your enemies! Your party must continue adventuring without you.");
+                    serverCode = EXIT;
+                    sprintf(buffer, "%d %d %d", serverCode, 0, 0);
+                    sendData(server_fd, buffer, BUFFER_SIZE);
+                    break;
+                }
+*/
+            
         }
 
     } // End while
