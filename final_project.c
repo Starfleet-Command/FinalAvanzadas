@@ -443,7 +443,7 @@ void *waitroomLoop(void *arg)
     // First, we handshake to the client to start the combat
     // SEND
 
-    sleep(FLAVOUR_SLEEP); //SLEEP FOR CLIENT FLAVOUR TEXT GOES HERE
+    //sleep(FLAVOUR_SLEEP); //SLEEP FOR CLIENT FLAVOUR TEXT GOES HERE
 
     *(threadData->ready_for_combat) += 1;
     printf("Player ready for combat %d \n", *(threadData->ready_for_combat));
@@ -483,7 +483,7 @@ void *waitroomLoop(void *arg)
             } // End poll
 
             //Client sent an action! Lets checkout which one is it
-            else if (poll_response == 1)
+            else if (poll_response > 0)
             {
                 // RECIEVE ACTION AND TARGET
                 recvData(client_fd, buffer, MAX_BUFSIZE + 1);
@@ -588,6 +588,19 @@ void *waitroomLoop(void *arg)
                     break;
                 }
             }
+
+            else{
+                if (isInterrupted)
+                { //If my server was interrupted...
+                    printf("Thread was interrupted! Closing thread and telling the client...\n");
+                    serverCode == EXIT;
+                    sprintf(buffer, "%s %d %d %d", name, serverCode, 0, 0);
+                    sendString(threadData->players[playerno].connection_fd, buffer); //Ensure client is there and await name and class.
+
+                    printf(" Player %d says byebye!\n", playerno + 1);
+                    break;
+                }
+            }
         } //end if
 
     } //end loop
@@ -600,14 +613,7 @@ int hit_or_miss(double ctH)
     // Returns a double between 0 and 1;
     double r = (double)rand() / (double)RAND_MAX;
     // Compares the result with the given hit chance
-    if (r <= ctH)
-    {
-        return 1; // Hit
-    }
-    else
-    {
-        return 0; // Miss
-    }
+    return r <= ctH;
 }
 
 player_t *initEntity(int class, char *name, int hp, int cd, int damage, double ctH)
@@ -718,7 +724,7 @@ int combatEnded(player_t *attackers, player_t *defenders, int numPlayers)
 //Before launching this, generate enemies and pass it as arg.
 void *monsterThread(void *arg)
 {
-    thread_t *threadData;
+    thread_t *threadData = NULL;
     threadData = (thread_t *)arg;
     char buffer[3 * MAX_BUFSIZE];
     int serverCode;
@@ -741,7 +747,7 @@ void *monsterThread(void *arg)
         if (*(threadData->ready_for_combat) == *(threadData->max_players))
         {
 
-            sleep(FLAVOUR_SLEEP); //flavour text sleep
+            //sleep(FLAVOUR_SLEEP); //flavour text sleep
 
             sleep(2); //Arbitrary time to stop monsters from attacking immediately
             while (!combatEnded(threadData->wave, threadData->players, *(threadData->max_players)) && !isInterrupted)
@@ -781,9 +787,9 @@ void *monsterThread(void *arg)
 
                     sprintf(buffer, "%s %d %d %d", threadData->wave[i].name, serverCode, target, attackDamage);
                     printf("Monster named %s attacked %d for %d damage\n", threadData->wave[i].name, target, attackDamage);
-                    for (int s; s < *(threadData->max_players); s++)
+                    for (int s = 0; s < *(threadData->max_players); s++)
                     {
-                        sendString(threadData->players[s].connection_fd, buffer); //Send combat information by monsters to client.
+                        sendData(threadData->players[s].connection_fd, buffer, strlen(buffer)+1); //Send combat information by monsters to client.
                     }
 
                 } //end for
@@ -808,6 +814,7 @@ void *monsterThread(void *arg)
             else if (wavesRemaining > 0)
             {
                 wavesRemaining--;
+                free(wave);
                 wave = initWave(monsters, *(threadData->max_players));
                 threadData->wave = wave;
                 printf("Previous wave is dead. Creating new one \n");

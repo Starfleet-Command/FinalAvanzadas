@@ -115,6 +115,7 @@ sigset_t setupMask()
 void onInterrupt(int signal)
 {
 
+    printf("\n Client interrupted! \n");
     isInterrupted = 1;
     //IF you want to use program data or communicate sth you need to use global variables.
 }
@@ -144,6 +145,7 @@ void communicationLoop(int server_fd)
     int damage = 0;
     int isDead = 0;
     int counter = 0;
+    int health;
 
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
@@ -208,13 +210,13 @@ void communicationLoop(int server_fd)
 
     //Flavour text
     printf("You and your friends are exploring a long-forgotten dungeon.\n ");
-    sleep(3);
+    //sleep(3);
     printf("You haven't encountered anyone yet, but the constant jeers and cackles remind you that you're not alone here. \n");
-    sleep(4);
+    //sleep(4);
     printf("As you round a corner, you almost collide with a group of monsters. They don't seem happy at your intrusion! \n");
-    sleep(4);
+    //sleep(4);
     printf("They raise their weapons and advance on you! IT'S A FIGHT!");
-    sleep(3);
+    //sleep(3);
 
     //Start combat
     int printed = 0; //Variable to check if the menu has been printed or not.
@@ -226,18 +228,6 @@ void communicationLoop(int server_fd)
         // Nothing is recieved, we can check if interrupted.
         if (poll_response == 0)
         {
-            if (isInterrupted)
-            { //If my server was interrupted...
-                printf("Client was interrupted! Closing connection...\n");
-                serverCode = EXIT;
-                sprintf(buffer, "%d %d %d", serverCode, 0, 0);
-                sendData(server_fd, buffer, BUFFER_SIZE);
-
-                printf("Bye bye!");
-                break;
-                loop = 0;
-                printed = 1;
-            }
         }
 
         // Nothing is recieved, we can ask the user for an action
@@ -253,7 +243,7 @@ void communicationLoop(int server_fd)
         {
 
             if (poll_fds[0].revents == POLLIN)
-            { // Check to receive something from keyboard
+            { // Check to receive something from socket
                 recvData(server_fd, buffer, BUFFER_SIZE + 1);
                 sscanf(buffer, "%s %d %d %d", name, &serverCode, &target, &damage);
                 printf("\nAction is: %d\n", serverCode);
@@ -292,7 +282,7 @@ void communicationLoop(int server_fd)
             }
 
             else if (poll_fds[1].revents == POLLIN)
-            { //If something is received from the socket
+            { //If something is received from the keyboard
                 scanf("%d", &option);
                 printf("%d", option);
 
@@ -324,6 +314,21 @@ void communicationLoop(int server_fd)
                     printf("ERROR: No valid option was chosen, try again.\n");
                     printed = 0;
                 }
+            }
+        }
+
+        else{
+             if (isInterrupted)
+            { //If my server was interrupted...
+                printf("Client was interrupted! Closing connection...\n");
+                serverCode = EXIT;
+                sprintf(buffer, "%d %d %d", serverCode, 0, 0);
+                sendData(server_fd, buffer, BUFFER_SIZE);
+
+                printf("Bye bye!");
+                break;
+                loop = 0;
+                printed = 1;
             }
         }
 
