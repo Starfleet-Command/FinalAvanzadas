@@ -41,6 +41,12 @@ typedef struct player_struct //Basic information that other players should know.
     int is_defending;
 } player_t;
 
+//Structure for mutexes to keep data consistent
+typedef struct locks_struct {
+    // Mutex array for the operations on the threads
+    pthread_mutex_t * monster_mutex;
+} locks_t;
+
 typedef struct thread_info //Information sent to each thread about other processes
 {
     player_t *players;
@@ -50,6 +56,8 @@ typedef struct thread_info //Information sent to each thread about other process
     int *ready_for_combat;
     int *max_players;
     int *max_waves;
+    // A pointer to a locks structure
+    locks_t * data_locks;
 } thread_t;
 
 int isInterrupted = 0;
@@ -60,12 +68,12 @@ void usage(char *program);
 void setupHandlers();
 sigset_t setupMask();
 void sendString(int connection_fd, char *buffer);
-void waitForConnections(int server_fd, int max_players, int max_waves);
+void waitForConnections(int server_fd, int max_players, int max_waves, locks_t * data_locks);
 void onInterrupt(int signal);
 void *playerThread(void *arg);
 player_t *initEntity(int class, char *name, int hp, int cd, int damage, double ctH);
 void *monsterThread(void *arg);
-player_t *initWave(player_t *monsters, int playerNo, int isFinalBoss);
+player_t *initWave(player_t *monsters, int playerNo, int isFinalBoss, player_t * wave);
 player_t *initMonsters();
 int hit_or_miss(double ctH);
 int choose_player(player_t *players, int max_players);
@@ -108,13 +116,14 @@ int main(int argc, char *argv[])
     setupMask();
 
     // Initialize the data structures
-
+    //Data locks
+    locks_t data_locks;
     // Show the IPs assigned to this computer
     printLocalIPs();
     // Start the server
     server_fd = initServer(argv[1], MAX_QUEUE);
     // Listen for connections from the clients
-    waitForConnections(server_fd, max_players, max_waves);
+    waitForConnections(server_fd, max_players, max_waves, &data_locks);
     // Close the socket
     close(server_fd);
 
@@ -220,12 +229,22 @@ void onInterrupt(int signal)
     //IF you want to use program data or communicate sth you need to use global variables.
 }
 
-void waitForConnections(int server_fd, int max_players, int max_waves)
+void waitForConnections(int server_fd, int max_players, int max_waves, locks_t * data_locks)
 {
     thread_t *threadinfo = malloc(sizeof(thread_t)); //Shared memory space for all threads to use
     int *ready_for_combat = malloc(sizeof(int));
     int *t_max_players = malloc(sizeof(int));
     int *t_max_waves = malloc(sizeof(int));
+    //MUTEX
+
+    //Assign memory
+    data_locks->monster_mutex = malloc((max_players)*sizeof(pthread_mutex_t));
+
+    for (int i=0; i<(max_players); i++)
+    {
+        pthread_mutex_init(&data_locks->monster_mutex[i], NULL);
+    }
+
 
     *(t_max_waves) = max_waves;
     *(t_max_players) = max_players;
@@ -279,6 +298,7 @@ void waitForConnections(int server_fd, int max_players, int max_waves)
                 threadinfo->ready_for_combat = ready_for_combat;
                 threadinfo->max_players = t_max_players;
                 threadinfo->max_waves = t_max_waves; //Pass the max waves to both monsters and players
+                threadinfo->data_locks = data_locks;
 
                 for (int i = 0; i < max_players; i++)
                 {
@@ -300,7 +320,6 @@ void waitForConnections(int server_fd, int max_players, int max_waves)
                 } // end for
 
                 //Create monster thread
-
                 int status = pthread_create(&new_tid, NULL, &monsterThread, threadinfo);
                 if (status == -1)
                 {
@@ -352,6 +371,7 @@ void waitForConnections(int server_fd, int max_players, int max_waves)
     free(ready_for_combat);
     free(t_max_waves);
     free(client_fds);
+    free(data_locks);
 }
 
 void *playerThread(void *arg)
@@ -523,7 +543,14 @@ void *playerThread(void *arg)
                     {
                         if (threadData->wave[target].hp > 0) //Target is valid and not dead
                         {
+                            //MUTEX LOCK
+                            pthread_mutex_lock(&threadData->data_locks->monster_mutex[target]);
+
                             threadData->wave[target].hp -= threadData->players[playerno].damage;
+
+                            //MUTEX UNLOCK
+                            pthread_mutex_unlock(&threadData->data_locks->monster_mutex[target]);
+
                             printf("\n %s attacks monster %d for %d damage! It has %d hp left. \n", name, target, threadData->players[playerno].damage, threadData->wave[target].hp);
                             sprintf(buffer, "%s %d %s %d %d %d", name, serverCode, threadData->wave[target].name, 0, threadData->players[playerno].damage, threadData->wave[target].hp);
                         }
@@ -533,7 +560,14 @@ void *playerThread(void *arg)
                             altTarget = choose_player(threadData->wave, playersInGame);
                             if (altTarget != -1)
                             {
+                                //MUTEX LOCK
+                                pthread_mutex_lock(&threadData->data_locks->monster_mutex[altTarget]);
+
                                 threadData->wave[altTarget].hp -= threadData->players[playerno].damage;
+
+                                //MUTEX UNLOCK
+                                pthread_mutex_unlock(&threadData->data_locks->monster_mutex[altTarget]);
+
                                 printf("\n %s attacks monster %d for %d damage! It has %d hp left. \n", name, altTarget, threadData->players[playerno].damage, threadData->wave[altTarget].hp);
                                 sprintf(buffer, "%s %d %s %d %d %d", name, serverCode, threadData->wave[altTarget].name, 0, threadData->players[playerno].damage, threadData->wave[altTarget].hp);
                             }
@@ -665,10 +699,10 @@ player_t *initMonsters() //Creation of the array where the monster templates are
     return monsters;
 }
 
-player_t *initWave(player_t *monsters, int playerNo, int isFinalBoss) //Create a wave of enemies or a wave of only the final boss
+player_t *initWave(player_t *monsters, int playerNo, int isFinalBoss, player_t * wave) //Create a wave of enemies or a wave of only the final boss
 {
     int selecter;
-    player_t *wave = malloc(playerNo * sizeof(player_t));
+    //player_t *wave = malloc(playerNo * sizeof(player_t));
 
     if (isFinalBoss)
     {
@@ -792,7 +826,7 @@ void *monsterThread(void *arg)
 
     player_t *monsters = initMonsters();
     player_t *wave = malloc(monsterCount * sizeof(player_t));
-    wave = initWave(monsters, monsterCount, 0); //Create initial wave.
+    wave = initWave(monsters, monsterCount, 0, wave); //Create initial wave.
     int target;
     int attackDamage;
     int sleepy = 0;
@@ -893,9 +927,9 @@ void *monsterThread(void *arg)
 
                 monsterCount = 1; //Only final boss present for last fight
                 isFinalBoss = 1;
-                free(wave);
+                //free(wave);
                 //player_t *wave = malloc(monsterCount * sizeof(player_t));
-                wave = initWave(monsters, monsterCount, isFinalBoss); //Clear everything in wave and set only final boss
+                wave = initWave(monsters, monsterCount, isFinalBoss, wave); //Clear everything in wave and set only final boss
                 printf("Previous wave is dead. Creating FINAL BOSS WAVE \n");
                 addHealth(threadData->players, *(threadData->max_players));
                 serverCode = NEWWAVE;
@@ -922,9 +956,9 @@ void *monsterThread(void *arg)
             else if (wavesRemaining > 0)
             {
                 wavesRemaining--;
-                free(wave);
+                //free(wave);
                 //player_t *wave = malloc(monsterCount * sizeof(player_t));
-                wave = initWave(monsters, *(threadData->max_players), 0);
+                wave = initWave(monsters, *(threadData->max_players), 0, wave);
                 threadData->wave = wave;
                 printf("Previous wave is dead. Creating new one \n");
                 addHealth(threadData->players, *(threadData->max_players));
