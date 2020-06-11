@@ -205,6 +205,7 @@ void communicationLoop(int server_fd)
     }
 
     // PREPARE FOR COMBAT!
+    
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
     sscanf(buffer, "%d %d", &serverCode, &players);
@@ -218,7 +219,7 @@ void communicationLoop(int server_fd)
     {
         loop = 0;
     }
-
+    system("clear");
     //Flavour text
     printf("You and your friends are exploring a long-forgotten dungeon.\n ");
     //sleep(3);
@@ -245,6 +246,8 @@ void communicationLoop(int server_fd)
                 recvData(server_fd, buffer, BUFFER_SIZE + 1);
                 sscanf(buffer, "%s %d %s %d %d %d", name, &serverCode, target_name, &target, &damage, &health);
 
+                //printf("BUFFER: %s\n", buffer);
+
                 if (serverCode == ATTACK)
                 {
                     printf("\n%s has struck %s for %d damage!\n%s remaining health: %d \n", name, target_name, damage, target_name, health);
@@ -265,6 +268,7 @@ void communicationLoop(int server_fd)
 
                 else if (serverCode == NEWWAVE)
                 {
+                    system("clear");
                     printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
                     sleep(3); //Brief respite so player knows what happened.
                     printed = 0;
@@ -272,10 +276,19 @@ void communicationLoop(int server_fd)
 
                 else if (serverCode == VICTORY)
                 {
+                    system("clear");
                     printf("\n CONGRATULATIONS! YOU HAVE DEFEATED SHIVA AND SAVED THE KINGDOM!\n THANKS FOR PLAYING! OWO\n");
 
                     //printed = 0;
                     break;
+                }
+
+                else if (serverCode == WAVEINFO)
+                {
+                    printf("\nMonster: %s [%d] HP: %d\n", name, damage, health);
+
+                    printed = 0;
+                    
                 }
 
                 else if (serverCode == EXIT)
@@ -359,6 +372,5 @@ void communicationLoop(int server_fd)
                 printed = 1;
             }
         }
-
     } // End while
 }

@@ -353,7 +353,7 @@ void waitForConnections(int server_fd, int max_players, int max_waves, locks_t *
                     playerNo++;
                     // Get the data from the client
                     inet_ntop(client_address.sin_family, &client_address.sin_addr, client_presentation, sizeof client_presentation);
-                    printf("Received incoming connection from %s on port %d\n Remaining players... %d\n", client_presentation, client_address.sin_port, 3 - playerNo);
+                    printf("Received incoming connection from %s on port %d\n Remaining players... %d\n", client_presentation, client_address.sin_port, max_players - playerNo);
                 }
             } // end if
 
@@ -702,7 +702,6 @@ player_t *initMonsters() //Creation of the array where the monster templates are
 player_t *initWave(player_t *monsters, int playerNo, int isFinalBoss, player_t * wave) //Create a wave of enemies or a wave of only the final boss
 {
     int selecter;
-    //player_t *wave = malloc(playerNo * sizeof(player_t));
 
     if (isFinalBoss)
     {
@@ -834,6 +833,7 @@ void *monsterThread(void *arg)
 
     threadData->wave = wave;
 
+
     while (wavesRemaining >= 0 && !isInterrupted)
     {
         // Only begin combat when all threads signal they are also ready
@@ -842,6 +842,16 @@ void *monsterThread(void *arg)
             if (wavesRemaining == *(threadData->max_waves))
             {
                 sleep(FLAVOUR_SLEEP); //Only sleep when it's the first wave to allow for flavour text.
+                //Send clients WAVE information:
+                serverCode = WAVEINFO;
+                for(int i = 0; i < *(threadData->max_players); i++){// For to send to each client
+                    for(int j = 0; j < *(threadData->max_players); j ++){ // For to print each monster
+                        sprintf(buffer, "%s %d %s %d %d %d", threadData->wave[j].name, serverCode, threadData->wave[j].name, 0, j, threadData->wave[j].hp);
+                        printf("Sending wave monster %d to client %d\n", j, i);
+                        sendData(threadData->players[i].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
+                        
+                    }
+                }
             }
             for (size_t i = 0; i < monsterCount; i++) //Dynamic cooldown calculation: average of the cd of each monster in wave.
             {
@@ -927,8 +937,6 @@ void *monsterThread(void *arg)
 
                 monsterCount = 1; //Only final boss present for last fight
                 isFinalBoss = 1;
-                //free(wave);
-                //player_t *wave = malloc(monsterCount * sizeof(player_t));
                 wave = initWave(monsters, monsterCount, isFinalBoss, wave); //Clear everything in wave and set only final boss
                 printf("Previous wave is dead. Creating FINAL BOSS WAVE \n");
                 addHealth(threadData->players, *(threadData->max_players));
@@ -938,8 +946,14 @@ void *monsterThread(void *arg)
                 {
                     if (threadData->players[s].hp > 0)
                     {
+                        serverCode = NEWWAVE;
                         sprintf(buffer, "%s %d %s %d %d %d", threadData->players[s].name, serverCode, threadData->players[s].name, 0, 0, threadData->players[s].hp);
                         sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
+                        serverCode = WAVEINFO;
+                        sprintf(buffer, "%s %d %s %d %d %d", threadData->wave[0].name, serverCode, threadData->wave[0].name, 0, 0, threadData->wave[0].hp);
+                        sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
+                        
+
                     }
                 }
             }
@@ -956,21 +970,28 @@ void *monsterThread(void *arg)
             else if (wavesRemaining > 0)
             {
                 wavesRemaining--;
-                //free(wave);
-                //player_t *wave = malloc(monsterCount * sizeof(player_t));
                 wave = initWave(monsters, *(threadData->max_players), 0, wave);
                 threadData->wave = wave;
                 printf("Previous wave is dead. Creating new one \n");
                 addHealth(threadData->players, *(threadData->max_players));
-                serverCode = NEWWAVE;
+                
                 for (int s = 0; s < *(threadData->max_players); s++)
                 {
+                    serverCode = NEWWAVE;
                     if (threadData->players[s].hp > 0)
                     {
                         sprintf(buffer, "%s %d %s %d %d %d", threadData->players[s].name, serverCode, threadData->players[s].name, 0, 0, threadData->players[s].hp);
                         sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
+                        serverCode = WAVEINFO;
+                        for(int j = 0; j < *(threadData->max_players); j ++){ // For to print each monster
+                            sprintf(buffer, "%s %d %s %d %d %d", threadData->wave[j].name, serverCode, threadData->wave[j].name, 0, j, threadData->wave[j].hp);
+                            printf("Sending wave monster %d to client %d\n", j, s);
+                            sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
+                            
+                    }
                     }
                 }
+                
             }
 
         } //end if

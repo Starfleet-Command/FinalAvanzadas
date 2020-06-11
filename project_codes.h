@@ -11,4 +11,5 @@ typedef enum communication_codes
     EXIT,
     NEWWAVE,
     VICTORY,
+    WAVEINFO,
 } com_t;
