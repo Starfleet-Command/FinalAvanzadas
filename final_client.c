@@ -7,9 +7,6 @@ Sebastian Gonzalo Vives Faus A01025211
 /*
 2. Mutex
 3. Al inicio del combate, mandar al cliente la wave.
-4. Arreglar todo el flavour text y sus sleeps
-5. Balanceo de combate (we are too op)
-6. Cooldown de los players
 
 */
 
@@ -24,6 +21,7 @@ Sebastian Gonzalo Vives Faus A01025211
 // Signals library
 #include <errno.h>
 #include <signal.h>
+#include <ctype.h>
 // Custom libraries
 #include "project_codes.h"
 #include "sockets.c"
@@ -137,7 +135,6 @@ void communicationLoop(int server_fd)
     char target_name[BUFFER_SIZE];
     int health = 0;
     int option;
-    int class;
     int serverCode = -1;
 
     struct pollfd poll_fds[2];
@@ -156,7 +153,8 @@ void communicationLoop(int server_fd)
     int target = 0;
     int damage = 0;
     int isDead = 0;
-    int counter = 0;
+    //char inputSanitizer;
+    int players = 0;
 
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
@@ -209,11 +207,13 @@ void communicationLoop(int server_fd)
     // PREPARE FOR COMBAT!
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
-    sscanf(buffer, "%d", &serverCode);
+    sscanf(buffer, "%d %d", &serverCode, &players);
     if (serverCode == READY)
     {
         printf("\nReady for combat! \n");
+        printf("There are %d players playing alongside you today\n", players - 1);
     }
+
     else
     {
         loop = 0;
@@ -226,8 +226,8 @@ void communicationLoop(int server_fd)
     //sleep(4);
     printf("As you round a corner, you almost collide with a group of monsters. They don't seem happy at your intrusion! \n");
     //sleep(4);
-    printf("They raise their weapons and advance on you! IT'S A FIGHT!");
-    //sleep(3);
+    printf("They raise their weapons and advance on you! IT'S A FIGHT! \n");
+    sleep(10);
 
     //Start combat
     int printed = 0; //Variable to check if the menu has been printed or not.
@@ -236,31 +236,24 @@ void communicationLoop(int server_fd)
         // POLLIN
         poll_response = poll(poll_fds, 2, timeout);
 
-        // Nothing is recieved, we can check if interrupted.
-        if (poll_response == 0)
-        {
-        }
-
         // Nothing is recieved, we can ask the user for an action
-
         if (poll_response > 0)
         {
 
             if (poll_fds[0].revents == POLLIN)
             { // Check to receive something from socket
-                recvData(server_fd, buffer, BUFFER_SIZE+1);
+                recvData(server_fd, buffer, BUFFER_SIZE + 1);
                 sscanf(buffer, "%s %d %s %d %d %d", name, &serverCode, target_name, &target, &damage, &health);
-                printf("\n BUFFER: %s %d %s %d %d %d\n",  name, serverCode, target_name, target, damage, health);
 
                 if (serverCode == ATTACK)
                 {
-                    printf("\n%s has struck %s for %d damage!\n%s remaining health: %d", name, target_name, damage, target_name, health);
+                    printf("\n%s has struck %s for %d damage!\n%s remaining health: %d \n", name, target_name, damage, target_name, health);
                     printed = 0;
                 }
 
                 else if (serverCode == DEFEND)
                 {
-                    printf("\n%s decided to defend, reducing incoming damage to him!\n%s remaining health: %d", name, name, health);
+                    printf("\n%s decided to defend, reducing incoming damage to them!\n%s remaining health: %d \n", name, name, health);
                     printed = 0;
                 }
 
@@ -273,13 +266,15 @@ void communicationLoop(int server_fd)
                 else if (serverCode == NEWWAVE)
                 {
                     printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
+                    sleep(3); //Brief respite so player knows what happened.
                     printed = 0;
                 }
 
                 else if (serverCode == VICTORY)
                 {
                     printf("\n CONGRATULATIONS! YOU HAVE DEFEATED SHIVA AND SAVED THE KINGDOM!\n THANKS FOR PLAYING! OWO\n");
-                    printed = 0;
+
+                    //printed = 0;
                     break;
                 }
 
@@ -305,8 +300,23 @@ void communicationLoop(int server_fd)
                 // If player decides to attack, choose a monster to attack.
                 if (option == 1)
                 {
-                    printf("Choose a target to attack! There are as many enemies as there are members of your party\n"); //Add list spoiler?
+                    printf("\nChoose a target to attack! \n"); //Add list spoiler?
                     scanf("%d", &target);
+
+                    /* //Tried to make something to detect misclicks that can crash the game. It is buggy, however
+                    getchar();
+                    scanf("%c", &inputSanitizer);
+
+                    if (isdigit(inputSanitizer) == 0)
+                    {
+                        printf("Invalid target! Target must be a minimum of 0");
+                        printf("As a default, your target will be redirected to 0");
+                        target = 0;
+                    }
+                    else
+                        target = (int)inputSanitizer;
+                        */
+
                     serverCode = ATTACK;
                     sprintf(buffer, "%d %d %d", serverCode, option, target);
                     sendData(server_fd, buffer, BUFFER_SIZE);
@@ -326,8 +336,9 @@ void communicationLoop(int server_fd)
             }
         }
 
-        else{
-             if (isInterrupted)
+        else
+        {
+            if (isInterrupted)
             { //If my server was interrupted...
                 printf("Client was interrupted! Closing connection...\n");
                 //serverCode = EXIT;
@@ -347,17 +358,6 @@ void communicationLoop(int server_fd)
                 printf("2. Defend!\n");
                 printed = 1;
             }
-/*
-            if (isDead)
-                {
-                    printf("You have been killed by your enemies! Your party must continue adventuring without you.");
-                    serverCode = EXIT;
-                    sprintf(buffer, "%d %d %d", serverCode, 0, 0);
-                    sendData(server_fd, buffer, BUFFER_SIZE);
-                    break;
-                }
-*/
-            
         }
 
     } // End while
