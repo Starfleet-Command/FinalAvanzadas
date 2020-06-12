@@ -22,7 +22,6 @@
 #include "project_codes.h"
 #include "sockets.c"
 
-#define MIN_CLIENTS 3
 #define MAX_BUFSIZE 1024
 #define MAX_QUEUE 7
 #define MAX_PLAYERS 5
@@ -68,7 +67,7 @@ void usage(char *program);
 void setupHandlers();
 sigset_t setupMask();
 void sendString(int connection_fd, char *buffer);
-void waitForConnections(int server_fd, int max_players, int max_waves, locks_t * data_locks);
+void waitForConnections(int server_fd, int max_players, int max_waves);
 void onInterrupt(int signal);
 void *playerThread(void *arg);
 player_t *initEntity(int class, char *name, int hp, int cd, int damage, double ctH);
@@ -80,6 +79,7 @@ int choose_player(player_t *players, int max_players);
 int combatEnded(player_t *attackers, player_t *defenders, int numPlayers);
 void addHealth(player_t *players, int max_players);
 void printToClients(player_t *players, int max_players, char *buffer);
+void prepare_message(char * superbuffer, int max_players, player_t *wave, int serverCode);
 //--------------------------------------------------------------
 
 int main(int argc, char *argv[])
@@ -117,13 +117,12 @@ int main(int argc, char *argv[])
 
     // Initialize the data structures
     //Data locks
-    locks_t data_locks;
     // Show the IPs assigned to this computer
     printLocalIPs();
     // Start the server
     server_fd = initServer(argv[1], MAX_QUEUE);
     // Listen for connections from the clients
-    waitForConnections(server_fd, max_players, max_waves, &data_locks);
+    waitForConnections(server_fd, max_players, max_waves);
     // Close the socket
     close(server_fd);
 
@@ -229,20 +228,21 @@ void onInterrupt(int signal)
     //IF you want to use program data or communicate sth you need to use global variables.
 }
 
-void waitForConnections(int server_fd, int max_players, int max_waves, locks_t * data_locks)
+void waitForConnections(int server_fd, int max_players, int max_waves)
 {
     thread_t *threadinfo = malloc(sizeof(thread_t)); //Shared memory space for all threads to use
     int *ready_for_combat = malloc(sizeof(int));
     int *t_max_players = malloc(sizeof(int));
     int *t_max_waves = malloc(sizeof(int));
+    locks_t data_locks;
     //MUTEX
 
     //Assign memory
-    data_locks->monster_mutex = malloc((max_players)*sizeof(pthread_mutex_t));
+    data_locks.monster_mutex = malloc((max_players)*sizeof(pthread_mutex_t));
 
     for (int i=0; i<(max_players); i++)
     {
-        pthread_mutex_init(&data_locks->monster_mutex[i], NULL);
+        pthread_mutex_init(&data_locks.monster_mutex[i], NULL);
     }
 
 
@@ -298,7 +298,7 @@ void waitForConnections(int server_fd, int max_players, int max_waves, locks_t *
                 threadinfo->ready_for_combat = ready_for_combat;
                 threadinfo->max_players = t_max_players;
                 threadinfo->max_waves = t_max_waves; //Pass the max waves to both monsters and players
-                threadinfo->data_locks = data_locks;
+                threadinfo->data_locks = &data_locks;
 
                 for (int i = 0; i < max_players; i++)
                 {
@@ -371,7 +371,6 @@ void waitForConnections(int server_fd, int max_players, int max_waves, locks_t *
     free(ready_for_combat);
     free(t_max_waves);
     free(client_fds);
-    free(data_locks);
 }
 
 void *playerThread(void *arg)
@@ -813,12 +812,23 @@ void printToClients(player_t *players, int max_players, char *buffer)
     }
 }
 
+void prepare_message(char * superbuffer, int max_players, player_t *wave, int serverCode){
+    char buffer[MAX_BUFSIZE];
+    superbuffer[0] = '\0'; // Clear superbuffer
+
+    for(int j = 0; j < max_players; j ++){ // For to print each monster
+            sprintf(buffer, "%s %d %s %d %d %d:", wave[j].name, serverCode, " ", 0, j, wave[j].hp);
+            strcat(superbuffer, buffer);
+    }
+}
+
 //Before launching this, generate enemies and pass it as arg.
 void *monsterThread(void *arg)
 {
     thread_t *threadData = NULL;
     threadData = (thread_t *)arg;
-    char buffer[3 * MAX_BUFSIZE];
+    char buffer[MAX_BUFSIZE];
+    char superbuffer[*(threadData->max_players) * (MAX_BUFSIZE + 1)];
     int serverCode;
     int wavesRemaining = *(threadData->max_waves);
     int monsterCount = *(threadData->max_players);
@@ -844,14 +854,8 @@ void *monsterThread(void *arg)
                 sleep(FLAVOUR_SLEEP); //Only sleep when it's the first wave to allow for flavour text.
                 //Send clients WAVE information:
                 serverCode = WAVEINFO;
-                for(int i = 0; i < *(threadData->max_players); i++){// For to send to each client
-                    for(int j = 0; j < *(threadData->max_players); j ++){ // For to print each monster
-                        sprintf(buffer, "%s %d %s %d %d %d", threadData->wave[j].name, serverCode, threadData->wave[j].name, 0, j, threadData->wave[j].hp);
-                        printf("Sending wave monster %d to client %d\n", j, i);
-                        sendData(threadData->players[i].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
-                        
-                    }
-                }
+                prepare_message(superbuffer, *(threadData->max_players), wave, serverCode);
+                printToClients(threadData->players, *(threadData->max_players), superbuffer);
             }
             for (size_t i = 0; i < monsterCount; i++) //Dynamic cooldown calculation: average of the cd of each monster in wave.
             {
@@ -948,14 +952,14 @@ void *monsterThread(void *arg)
                     {
                         serverCode = NEWWAVE;
                         sprintf(buffer, "%s %d %s %d %d %d", threadData->players[s].name, serverCode, threadData->players[s].name, 0, 0, threadData->players[s].hp);
-                        sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
-                        serverCode = WAVEINFO;
-                        sprintf(buffer, "%s %d %s %d %d %d", threadData->wave[0].name, serverCode, threadData->wave[0].name, 0, 0, threadData->wave[0].hp);
-                        sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
-                        
-
+                        sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client
                     }
                 }
+
+                serverCode = WAVEINFO;
+                prepare_message(superbuffer, *(threadData->max_players), wave, serverCode);
+                printToClients(threadData->players, *(threadData->max_players), superbuffer);
+                
             }
 
             else if (wavesRemaining == 1 && isFinalBoss == 1)
@@ -983,14 +987,12 @@ void *monsterThread(void *arg)
                         sprintf(buffer, "%s %d %s %d %d %d", threadData->players[s].name, serverCode, threadData->players[s].name, 0, 0, threadData->players[s].hp);
                         sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
                         serverCode = WAVEINFO;
-                        for(int j = 0; j < *(threadData->max_players); j ++){ // For to print each monster
-                            sprintf(buffer, "%s %d %s %d %d %d", threadData->wave[j].name, serverCode, threadData->wave[j].name, 0, j, threadData->wave[j].hp);
-                            printf("Sending wave monster %d to client %d\n", j, s);
-                            sendData(threadData->players[s].connection_fd, buffer, strlen(buffer) + 1); //Send combat information by monsters to client.
-                            
-                    }
                     }
                 }
+
+                serverCode = WAVEINFO;
+                prepare_message(superbuffer, *(threadData->max_players), wave, serverCode);
+                printToClients(threadData->players, *(threadData->max_players), superbuffer);
                 
             }
 

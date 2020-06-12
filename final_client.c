@@ -146,7 +146,7 @@ void communicationLoop(int server_fd)
     poll_fds[1].events = POLLIN;
 
     // Pollin
-    int timeout = 500;     // Time in milliseconds (0.5 seconds)
+    int timeout = 300;     // Time in milliseconds (0.5 seconds)
     int poll_response = 0; //Poll return value
 
     int loop = 1;
@@ -155,6 +155,9 @@ void communicationLoop(int server_fd)
     int isDead = 0;
     //char inputSanitizer;
     int players = 0;
+
+    //STRTOK
+    char * pch;
 
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
@@ -168,6 +171,8 @@ void communicationLoop(int server_fd)
         loop = 0;
         isInterrupted = 1;
     }
+
+    
 
     // CHARACTER CREATION
     //Select a name
@@ -209,6 +214,8 @@ void communicationLoop(int server_fd)
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
     sscanf(buffer, "%d %d", &serverCode, &players);
+
+    char superbuffer[players * (BUFFER_SIZE + 1)];
     if (serverCode == READY)
     {
         printf("\nReady for combat! \n");
@@ -243,65 +250,72 @@ void communicationLoop(int server_fd)
 
             if (poll_fds[0].revents == POLLIN)
             { // Check to receive something from socket
-                recvData(server_fd, buffer, BUFFER_SIZE + 1);
-                sscanf(buffer, "%s %d %s %d %d %d", name, &serverCode, target_name, &target, &damage, &health);
+                recvData(server_fd, superbuffer, players * (BUFFER_SIZE + 1));
+                printf("BUFFER: %s\n", superbuffer);
+                pch = strtok(superbuffer,":");
 
-                //printf("BUFFER: %s\n", buffer);
+                
+                while(pch != NULL){
+                    sscanf(pch, "%s %d %s %d %d %d", name, &serverCode, target_name, &target, &damage, &health);
 
-                if (serverCode == ATTACK)
-                {
-                    printf("\n%s has struck %s for %d damage!\n%s remaining health: %d \n", name, target_name, damage, target_name, health);
-                    printed = 0;
-                }
+                    if (serverCode == ATTACK)
+                    {
+                        printf("\n%s has struck %s for %d damage!\n%s remaining health: %d \n", name, target_name, damage, target_name, health);
+                        printed = 0;
+                    }
 
-                else if (serverCode == DEFEND)
-                {
-                    printf("\n%s decided to defend, reducing incoming damage to them!\n%s remaining health: %d \n", name, name, health);
-                    printed = 0;
-                }
+                    else if (serverCode == DEFEND)
+                    {
+                        printf("\n%s decided to defend, reducing incoming damage to them!\n%s remaining health: %d \n", name, name, health);
+                        printed = 0;
+                    }
 
-                else if (serverCode == MISS)
-                {
-                    printf("\n%s tried to attack %s but missed!\n", name, target_name);
-                    printed = 0;
-                }
+                    else if (serverCode == MISS)
+                    {
+                        printf("\n%s tried to attack %s but missed!\n", name, target_name);
+                        printed = 0;
+                    }
 
-                else if (serverCode == NEWWAVE)
-                {
-                    system("clear");
-                    printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
-                    sleep(3); //Brief respite so player knows what happened.
-                    printed = 0;
-                }
+                    else if (serverCode == NEWWAVE)
+                    {
+                        system("clear");
+                        printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
+                        printed = 0;
+                    }
 
-                else if (serverCode == VICTORY)
-                {
-                    system("clear");
-                    printf("\n CONGRATULATIONS! YOU HAVE DEFEATED SHIVA AND SAVED THE KINGDOM!\n THANKS FOR PLAYING! OWO\n");
+                    else if (serverCode == VICTORY)
+                    {
+                        system("clear");
+                        printf("\n CONGRATULATIONS! YOU HAVE DEFEATED SHIVA AND SAVED THE KINGDOM!\n THANKS FOR PLAYING! OWO\n");
 
-                    //printed = 0;
-                    break;
-                }
+                        //printed = 0;
+                        break;
+                    }
 
-                else if (serverCode == WAVEINFO)
-                {
-                    printf("\nMonster: %s [%d] HP: %d\n", name, damage, health);
+                    else if (serverCode == WAVEINFO)
+                    {
+                        printf("\nMonster: %s [%d] HP: %d\n", name, damage, health);
 
-                    printed = 0;
-                    
-                }
+                        printed = 0;
+                        
+                    }
 
-                else if (serverCode == EXIT)
-                {
-                    //If you have been disconnected
-                    printf("\nYou have died!\n");
-                    break;
-                }
+                    else if (serverCode == EXIT)
+                    {
+                        //If you have been disconnected
+                        printf("\nYou have died!\n");
+                        exit(0);
+                        break;
+                    }
 
-                else
-                {
-                    printf("\nAction recieved unclear.\n");
-                    printed = 0;
+                    else
+                    {
+                        printf("\nAction recieved unclear.\n");
+                        printed = 0;
+                    }
+
+                    //STRTOK
+                    pch = strtok(NULL, ":");
                 }
             }
 
