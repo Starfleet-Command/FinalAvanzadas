@@ -35,6 +35,9 @@ void communicationLoop(int server_fd);
 void onInterrupt(int signal);
 void setupHandlers();
 sigset_t setupMask();
+int printClient(char *pch, char * name, int serverCode, char *target_name, int target, int damage, int health);
+void showStory();
+void characterCreation(char * buffer, char * name, int option, int server_fd);
 //--------------------------------------------------------------
 
 int isInterrupted = 0;
@@ -128,6 +131,52 @@ void onInterrupt(int signal)
     //IF you want to use program data or communicate sth you need to use global variables.
 }
 
+// Function to print the story to the client
+void showStory(){
+    system("clear");
+    //Flavour text
+    printf("You and your friends are exploring a long-forgotten dungeon.\n ");
+    sleep(2);
+    printf("You haven't encountered anyone yet, but the constant jeers and cackles remind you that you're not alone here. \n");
+    sleep(2);
+    printf("As you round a corner, you almost collide with a group of monsters. They don't seem happy at your intrusion! \n");
+    sleep(2);
+    printf("They raise their weapons and advance on you! IT'S A FIGHT! \n");
+    sleep(10);
+}
+
+//Function to create the character and send it to the server
+void characterCreation(char * buffer, char * name, int option, int server_fd){
+    //Select a name
+    printf("\nPlease write your name: \n");
+    scanf("%s", name);
+    printf("Your name is: %s", name);
+
+    while (1)
+    {
+
+        //Select a class
+        printf("\nSelect your class: \n");
+        printf("1. Knight: A balanced choice. Low damage, high health \n ");
+        printf("2. Rogue: An aggressive choice. High damage, low health \n ");
+        printf("3. Barbarian: An unpredictable choice. High damage, High health, low chance to hit \n ");
+        scanf("%d", &option);
+
+        //Check if option is valid
+        if (option == 1 || option == 2 || option == 3)
+        {
+            printf("Option chosen is: %d, sending it to server...", option);
+            sprintf(buffer, "%s %d", name, option);
+            sendData(server_fd, buffer, BUFFER_SIZE); //Send class to server.
+            break;
+        }
+        else
+        {
+            printf("\nError! Class not found, try again.\n");
+        }
+    } // end while
+}
+
 void communicationLoop(int server_fd)
 {
     char buffer[3 * BUFFER_SIZE];
@@ -153,11 +202,8 @@ void communicationLoop(int server_fd)
     int target = 0;
     int damage = 0;
     int isDead = 0;
-    //char inputSanitizer;
     int players = 0;
 
-    //STRTOK
-    char * pch;
 
     //HANDSHAKE WITH SERVER
     recvData(server_fd, buffer, BUFFER_SIZE + 1);
@@ -175,34 +221,7 @@ void communicationLoop(int server_fd)
     
 
     // CHARACTER CREATION
-    //Select a name
-    printf("\nPlease write your name: \n");
-    scanf("%s", name);
-    printf("Your name is: %s", name);
-
-    while (loop)
-    {
-
-        //Select a class
-        printf("\nSelect your class: \n");
-        printf("1. Knight: A balanced choice. Low damage, high health \n ");
-        printf("2. Rogue: An aggressive choice. High damage, low health \n ");
-        printf("3. Barbarian: An unpredictable choice. High damage, High health, low chance to hit \n ");
-        scanf("%d", &option);
-
-        //Check if option is valid
-        if (option == 1 || option == 2 || option == 3)
-        {
-            printf("Option chosen is: %d, sending it to server...", option);
-            sprintf(buffer, "%s %d", name, option);
-            sendData(server_fd, buffer, BUFFER_SIZE); //Send class to server.
-            loop = 0;
-        }
-        else
-        {
-            printf("\nError! Class not found, try again.\n");
-        }
-    } // end while
+    characterCreation(buffer, name, option, server_fd);
 
     if (!isInterrupted)
     {
@@ -226,16 +245,9 @@ void communicationLoop(int server_fd)
     {
         loop = 0;
     }
-    system("clear");
-    //Flavour text
-    printf("You and your friends are exploring a long-forgotten dungeon.\n ");
-    //sleep(3);
-    printf("You haven't encountered anyone yet, but the constant jeers and cackles remind you that you're not alone here. \n");
-    //sleep(4);
-    printf("As you round a corner, you almost collide with a group of monsters. They don't seem happy at your intrusion! \n");
-    //sleep(4);
-    printf("They raise their weapons and advance on you! IT'S A FIGHT! \n");
-    sleep(10);
+    
+    //Print the story to the client
+    showStory();
 
     //Start combat
     int printed = 0; //Variable to check if the menu has been printed or not.
@@ -251,72 +263,16 @@ void communicationLoop(int server_fd)
             if (poll_fds[0].revents == POLLIN)
             { // Check to receive something from socket
                 recvData(server_fd, superbuffer, players * (BUFFER_SIZE + 1));
-                printf("BUFFER: %s\n", superbuffer);
-                pch = strtok(superbuffer,":");
 
-                
-                while(pch != NULL){
-                    sscanf(pch, "%s %d %s %d %d %d", name, &serverCode, target_name, &target, &damage, &health);
-
-                    if (serverCode == ATTACK)
-                    {
-                        printf("\n%s has struck %s for %d damage!\n%s remaining health: %d \n", name, target_name, damage, target_name, health);
-                        printed = 0;
-                    }
-
-                    else if (serverCode == DEFEND)
-                    {
-                        printf("\n%s decided to defend, reducing incoming damage to them!\n%s remaining health: %d \n", name, name, health);
-                        printed = 0;
-                    }
-
-                    else if (serverCode == MISS)
-                    {
-                        printf("\n%s tried to attack %s but missed!\n", name, target_name);
-                        printed = 0;
-                    }
-
-                    else if (serverCode == NEWWAVE)
-                    {
-                        system("clear");
-                        printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
-                        printed = 0;
-                    }
-
-                    else if (serverCode == VICTORY)
-                    {
-                        system("clear");
-                        printf("\n CONGRATULATIONS! YOU HAVE DEFEATED SHIVA AND SAVED THE KINGDOM!\n THANKS FOR PLAYING! OWO\n");
-
-                        //printed = 0;
-                        break;
-                    }
-
-                    else if (serverCode == WAVEINFO)
-                    {
-                        printf("\nMonster: %s [%d] HP: %d\n", name, damage, health);
-
-                        printed = 0;
-                        
-                    }
-
-                    else if (serverCode == EXIT)
-                    {
-                        //If you have been disconnected
-                        printf("\nYou have died!\n");
-                        exit(0);
-                        break;
-                    }
-
-                    else
-                    {
-                        printf("\nAction recieved unclear.\n");
-                        printed = 0;
-                    }
-
-                    //STRTOK
-                    pch = strtok(NULL, ":");
+                //Send action and print it.
+                if(printClient(superbuffer, name, serverCode, target_name, target, damage, health)){
+                    printed = 0;
                 }
+                else{
+                    //If you died or server disconnects.
+                    exit(0);
+                }
+                
             }
 
             else if (poll_fds[1].revents == POLLIN)
@@ -329,20 +285,6 @@ void communicationLoop(int server_fd)
                 {
                     printf("\nChoose a target to attack! \n"); //Add list spoiler?
                     scanf("%d", &target);
-
-                    /* //Tried to make something to detect misclicks that can crash the game. It is buggy, however
-                    getchar();
-                    scanf("%c", &inputSanitizer);
-
-                    if (isdigit(inputSanitizer) == 0)
-                    {
-                        printf("Invalid target! Target must be a minimum of 0");
-                        printf("As a default, your target will be redirected to 0");
-                        target = 0;
-                    }
-                    else
-                        target = (int)inputSanitizer;
-                        */
 
                     serverCode = ATTACK;
                     sprintf(buffer, "%d %d %d", serverCode, option, target);
@@ -387,4 +329,70 @@ void communicationLoop(int server_fd)
             }
         }
     } // End while
+}
+
+//Function to print
+
+int printClient(char *superbuffer, char * name, int serverCode, char *target_name, int target, int damage, int health){
+    char * pch;
+    pch = strtok(superbuffer,":");
+    while(pch != NULL){
+            sscanf(pch, "%s %d %s %d %d %d", name, &serverCode, target_name, &target, &damage, &health);
+
+            if (serverCode == ATTACK)
+            {
+                printf("\n%s has struck %s for %d damage!\n%s remaining health: %d \n", name, target_name, damage, target_name, health);
+                return 1;
+            }
+
+            else if (serverCode == DEFEND)
+            {
+                printf("\n%s decided to defend, reducing incoming damage to them!\n%s remaining health: %d \n", name, name, health);
+                return 1;
+            }
+
+            else if (serverCode == MISS)
+            {
+                printf("\n%s tried to attack %s but missed!\n", name, target_name);
+                return 1;
+            }
+
+            else if (serverCode == NEWWAVE)
+            {
+                system("clear");
+                printf("\nWave cleared! you gained some HP! %s remaining health: %d \n", name, health);
+                return 1;
+            }
+
+            else if (serverCode == VICTORY)
+            {
+                system("clear");
+                printf("\n CONGRATULATIONS! YOU HAVE DEFEATED SHIVA AND SAVED THE KINGDOM!\n THANKS FOR PLAYING! OWO\n");
+
+                return 0;
+            }
+
+            else if (serverCode == WAVEINFO)
+            {
+                printf("\nMonster: %s [%d] HP: %d\n", name, damage, health);
+                
+            }
+
+            else if (serverCode == EXIT)
+            {
+                printf("\nYou have died!\n");
+                return 0;
+            }
+
+            else
+            {
+                printf("\nAction recieved unclear.\n");
+                return 1;
+            }
+
+            //STRTOK
+            pch = strtok(NULL, ":");
+        }
+
+        return 1;
 }
